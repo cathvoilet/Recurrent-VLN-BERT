@@ -11,7 +11,7 @@ from utils import read_vocab, write_vocab, build_vocab, padding_idx, timeSince, 
 import utils
 from env import R2RBatch
 from agent import Seq2SeqAgent
-from eval import Evaluation
+from eval import Evaluation, format_results
 from param import args
 
 import warnings
@@ -109,17 +109,16 @@ def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
             result = listner.get_results()
             score_summary, _ = evaluator.score(result)
             loss_str += ", %s " % env_name
-            for metric, val in score_summary.items():
-                if metric in ['spl']:
-                    writer.add_scalar("spl/%s" % env_name, val, idx)
-                    if env_name in best_val:
-                        if val > best_val[env_name]['spl']:
-                            best_val[env_name]['spl'] = val
-                            best_val[env_name]['update'] = True
-                        elif (val == best_val[env_name]['spl']) and (score_summary['success_rate'] > best_val[env_name]['sr']):
-                            best_val[env_name]['spl'] = val
-                            best_val[env_name]['update'] = True
-                loss_str += ', %s: %.4f' % (metric, val)
+            val = score_summary['spl']
+            writer.add_scalar("spl/%s" % env_name, val, idx)
+            if env_name in best_val:
+                if val > best_val[env_name]['spl']:
+                    best_val[env_name]['spl'] = val
+                    best_val[env_name]['update'] = True
+                elif (val == best_val[env_name]['spl']) and (score_summary['success_rate'] > best_val[env_name]['sr']):
+                    best_val[env_name]['spl'] = val
+                    best_val[env_name]['update'] = True
+            loss_str += format_results(score_summary)
 
         record_file = open('./logs/' + args.name + '.txt', 'a')
         record_file.write(loss_str + '\n')
@@ -163,9 +162,8 @@ def valid(train_env, tok, val_envs={}):
 
         if env_name != '':
             score_summary, _ = evaluator.score(result)
-            loss_str = "Env name: %s" % env_name
-            for metric,val in score_summary.items():
-                loss_str += ', %s: %.4f' % (metric, val)
+            loss_str = "Env name: %s, " % env_name
+            loss_str += format_results(score_summary)
             print(loss_str)
 
         if args.submit:
@@ -198,10 +196,10 @@ def train_val(test_only=False):
     train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok)
     from collections import OrderedDict
 
-    if args.submit:
-        val_env_names.append('test')
-    else:
-        pass
+    #if args.submit:
+    #    val_env_names.append('test')
+    #else:
+    #    pass
 
     val_envs = OrderedDict(
         ((split,

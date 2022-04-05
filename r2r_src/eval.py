@@ -6,6 +6,7 @@ import sys
 from collections import defaultdict
 import networkx as nx
 import numpy as np
+import math
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
@@ -48,6 +49,26 @@ class Evaluation(object):
                 near_d = d
         return near_id
 
+    def compute_ndtw(self, scan, pred_path, gold_path):
+        r = gold_path
+        q = pred_path
+        c = [[1e9] * (len(q) + 1) for _ in range(len(r) + 1)]
+        c[0][0] = 0
+
+        for i in range(1, len(r) + 1):
+            for j in range(1, len(q) + 1):
+                d = self.distances[scan][r[i - 1]][q[j - 1]]
+                c[i][j] = min(c[i - 1][j], c[i][j - 1], c[i - 1][j - 1]) + d
+
+        return math.exp(-c[len(r)][len(q)] / (len(r) * self.error_margin))
+
+    def compute_sdtw(self, scan, pred_path, gold_path):
+        d = self.distances[scan][pred_path[-1]][gold_path[-1]]
+        if d > self.error_margin:
+            return 0
+        return self.compute_ndtw(scan, pred_path, gold_path)
+
+
     def _score_item(self, instr_id, path):
         ''' Calculate error based on the final position in trajectory, and also
             the closest position (oracle stopping rule).
@@ -70,6 +91,10 @@ class Evaluation(object):
         self.scores['shortest_lengths'].append(
             self.distances[gt['scan']][start][goal]
         )
+        pred_path = [x[0] for x in path]
+        self.scores['ndtws'].append(self.compute_ndtw(gt['scan'], pred_path, gt['path']))
+        self.scores['sdtws'].append(self.compute_sdtw(gt['scan'], pred_path, gt['path']))
+
 
     def score(self, output_file):
         ''' Evaluate each agent trajectory based on how close it got to the goal location '''
@@ -93,10 +118,12 @@ class Evaluation(object):
                            % (len(instr_ids), len(self.instr_ids), ",".join(self.splits), output_file)
             assert len(self.scores['nav_errors']) == len(self.instr_ids)
         score_summary = {
-            'nav_error': np.average(self.scores['nav_errors']),
+            'nav_error': np.average(self.scores['nav_errors']),  # same as dist
             'oracle_error': np.average(self.scores['oracle_errors']),
             'steps': np.average(self.scores['trajectory_steps']),
-            'lengths': np.average(self.scores['trajectory_lengths'])
+            'lengths': np.average(self.scores['trajectory_lengths']),
+            'ndtw':  np.average(self.scores['ndtws']),
+            'sdtw': np.average(self.scores['sdtws']),
         }
         num_successes = len([i for i in self.scores['nav_errors'] if i < self.error_margin])
         score_summary['success_rate'] = float(num_successes)/float(len(self.scores['nav_errors']))
@@ -110,3 +137,17 @@ class Evaluation(object):
         score_summary['spl'] = np.average(spl)
 
         return score_summary, self.scores
+
+
+def format_results(result_dict):
+
+    result_strings = []
+    result_strings.append('score %.1f' % (result_dict['success_rate'] * 100))
+    result_strings.append('spl %.1f'   % (result_dict['spl'] * 100))
+    result_strings.append('dist %.2f'  % result_dict['nav_error'])
+    result_strings.append('ndtw %.1f'  % (result_dict['ndtw'] * 100))
+    result_strings.append('sdtw %.1f'  % (result_dict['sdtw'] * 100))
+    result_strings.append('path_len %.1f' % result_dict['lengths'])
+
+    return ', '.join(result_strings)
+
