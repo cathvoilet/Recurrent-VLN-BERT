@@ -3,7 +3,8 @@
 import os
 import sys
 import re
-sys.path.append('Matterport_Simulator/build/')
+#sys.path.append('Matterport_Simulator/build/')
+sys.path.append('/vulcanscratch/lzhao/repos/Matterport3DSimulator/build/')
 import MatterSim
 import string
 import json
@@ -562,7 +563,8 @@ def print_progress(iteration, total, prefix='', suffix='', decimals=1, bar_lengt
     filled_length = int(round(bar_length * iteration / float(total)))
     bar = '█' * filled_length + '-' * (bar_length - filled_length)
 
-    sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar, percents, '%', suffix)),
+    #sys.stdout.write('\r%s |%s| %s%s %s' % (prefix.encode('utf-8'), bar.encode('utf-8'), percents.encode('utf-8'), '%'.encode('utf-8'), suffix.encode('utf-8'))),
+    sys.stdout.write('\r%s |%s| %s%s %s' % (prefix, bar.encode('utf-8'), percents, '%', suffix)),
 
     if iteration == total:
         sys.stdout.write('\n')
