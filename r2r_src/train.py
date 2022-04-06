@@ -173,6 +173,34 @@ def valid(train_env, tok, val_envs={}):
                 sort_keys=True, indent=4, separators=(',', ': ')
             )
 
+
+def evaluate_with_outputs(train_env, tok, val_envs={}):
+    agent = Seq2SeqAgent(train_env, "", tok, args.maxAction)
+
+    print("Loaded the listener model at iter %d from %s" % (agent.load(args.load), args.load))
+
+    for env_name, (env, evaluator) in val_envs.items():
+        agent.logs = defaultdict(list)
+        agent.env = env
+
+        iters = None
+        agent.test(use_dropout=False, feedback='argmax', iters=iters)
+        result = agent.get_results()
+
+        score_summary, all_preds = evaluator.score(result)
+        loss_str = "Env name: %s, " % env_name
+        loss_str += format_results(score_summary)
+        print(loss_str)
+
+        if args.submit:
+            filename = os.path.basename(env_name).split(".")[0]
+            file_path = os.path.join(log_dir, "%s.json" % filename)
+            with open(file_path, 'w') as f:
+                json.dump(all_preds, f, indent=2)
+
+            print("Saved eval info to ", file_path)
+
+
 def setup():
     torch.manual_seed(1)
     torch.cuda.manual_seed(1)
@@ -201,10 +229,17 @@ def train_val(test_only=False):
     #else:
     #    pass
 
+    if args.train == "eval_listener_outputs":
+        speaker_outputs = True
+        val_env_names = args.speaker_output_files
+        print(args.speaker_output_files)
+    else:
+        speaker_outputs = False
+
     val_envs = OrderedDict(
         ((split,
-          (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok),
-           Evaluation([split], featurized_scans, tok))
+          (R2RBatch(feat_dict, batch_size=args.batchSize, splits=[split], tokenizer=tok, speaker_outputs=speaker_outputs),
+           Evaluation([split], featurized_scans, tok, speaker_outputs=speaker_outputs))
           )
          for split in val_env_names
          )
@@ -214,6 +249,8 @@ def train_val(test_only=False):
         train(train_env, tok, args.iters, val_envs=val_envs)
     elif args.train == 'validlistener':
         valid(train_env, tok, val_envs=val_envs)
+    elif args.train == "eval_listener_outputs":
+        evaluate_with_outputs(train_env, tok, val_envs=val_envs)
     else:
         assert False
 
@@ -252,7 +289,7 @@ def train_val_augment(test_only=False):
 
 
 if __name__ == "__main__":
-    if args.train in ['listener', 'validlistener']:
+    if args.train in ['listener', 'validlistener', 'eval_listener_outputs']:
         train_val(test_only=args.test_only)
     elif args.train == 'auglistener':
         train_val_augment(test_only=args.test_only)

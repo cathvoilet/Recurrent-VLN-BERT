@@ -15,7 +15,7 @@ import random
 import networkx as nx
 from param import args
 
-from utils import load_datasets, load_nav_graphs, pad_instr_tokens
+from utils import load_datasets, load_nav_graphs, pad_instr_tokens, load_speaker_outputs
 
 csv.field_size_limit(sys.maxsize)
 
@@ -91,7 +91,7 @@ class EnvBatch():
 class R2RBatch():
     ''' Implements the Room to Room navigation task, using discretized viewpoints and pretrained features '''
 
-    def __init__(self, feature_store, batch_size=100, seed=10, splits=['train'], tokenizer=None,
+    def __init__(self, feature_store, batch_size=100, seed=10, splits=['train'], tokenizer=None, speaker_outputs=False,
                  name=None):
         self.env = EnvBatch(feature_store=feature_store, batch_size=batch_size)
         if feature_store:
@@ -101,40 +101,44 @@ class R2RBatch():
         self.data = []
         if tokenizer:
             self.tok = tokenizer
-        scans = []
-        for split in splits:
-            for i_item, item in enumerate(load_datasets([split])):
-                if args.test_only and i_item == 64:
-                    break
-                if "/" in split:
-                    try:
-                        new_item = dict(item)
-                        new_item['instr_id'] = item['path_id']
-                        new_item['instructions'] = item['instructions'][0]
-                        new_item['instr_encoding'] = item['instr_enc']
-                        if new_item['instr_encoding'] is not None:  # Filter the wrong data
-                            self.data.append(new_item)
-                            scans.append(item['scan'])
-                    except:
-                        continue
-                else:
-                    # Split multiple instructions into separate entries
-                    for j, instr in enumerate(item['instructions']):
+
+        if speaker_outputs:
+            self.data, scans = load_speaker_outputs(splits, tokenizer)
+        else:
+            scans = []
+            for split in splits:
+                for i_item, item in enumerate(load_datasets([split])):
+                    if args.test_only and i_item == 64:
+                        break
+                    if "/" in split:
                         try:
                             new_item = dict(item)
-                            new_item['instr_id'] = '%s_%d' % (item['path_id'], j)
-                            new_item['instructions'] = instr
-
-                            ''' BERT tokenizer '''
-                            instr_tokens = tokenizer.tokenize(instr)
-                            padded_instr_tokens, num_words = pad_instr_tokens(instr_tokens, args.maxInput)
-                            new_item['instr_encoding'] = tokenizer.convert_tokens_to_ids(padded_instr_tokens)
-
+                            new_item['instr_id'] = item['path_id']
+                            new_item['instructions'] = item['instructions'][0]
+                            new_item['instr_encoding'] = item['instr_enc']
                             if new_item['instr_encoding'] is not None:  # Filter the wrong data
                                 self.data.append(new_item)
                                 scans.append(item['scan'])
                         except:
                             continue
+                    else:
+                        # Split multiple instructions into separate entries
+                        for j, instr in enumerate(item['instructions']):
+                            try:
+                                new_item = dict(item)
+                                new_item['instr_id'] = '%s_%d' % (item['path_id'], j)
+                                new_item['instructions'] = instr
+
+                                ''' BERT tokenizer '''
+                                instr_tokens = tokenizer.tokenize(instr)
+                                padded_instr_tokens, num_words = pad_instr_tokens(instr_tokens, args.maxInput)
+                                new_item['instr_encoding'] = tokenizer.convert_tokens_to_ids(padded_instr_tokens)
+
+                                if new_item['instr_encoding'] is not None:  # Filter the wrong data
+                                    self.data.append(new_item)
+                                    scans.append(item['scan'])
+                            except:
+                                continue
 
         if name is None:
             self.name = splits[0] if len(splits) > 0 else "FAKE"

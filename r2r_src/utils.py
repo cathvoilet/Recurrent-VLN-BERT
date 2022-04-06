@@ -89,6 +89,38 @@ def load_datasets(splits):
     return data
 
 
+def load_speaker_outputs(input_files, tokenizer):
+    """
+
+    :param splits: A list of split.
+        if the split is "something@5000", it will use a random 5000 data from the data
+    :return:
+    """
+    data = []
+    scans = []
+    for input_file in input_files:
+        with open(input_file) as f:
+            tmp_data = json.load(f)
+            data = []
+            for instr_id, item in tmp_data.items():
+                path_id = instr_id.split("_")[0]
+                item['path_id'] = path_id
+                instruction = item['generated_instr']
+                if tokenizer:
+                    instr_tokens = tokenizer.tokenize(instruction)
+                    padded_instr_tokens, num_words = pad_instr_tokens(instr_tokens, args.maxInput)
+                    item['instr_encoding'] = tokenizer.convert_tokens_to_ids(padded_instr_tokens)
+                if 'result' in item:
+                    del item['result']
+                if 'pred_path' in item:
+                    del item['pred_path']
+
+                data.append(item)
+                scans.append(item['scan'])
+
+    return data, scans
+
+
 def pad_instr_tokens(instr_tokens, maxlength=20):
 
     if len(instr_tokens) <= 2: #assert len(raw_instr_tokens) > 2
