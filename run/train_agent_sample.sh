@@ -5,6 +5,7 @@
 #SBATCH --time=7-00:00:00
 #SBATCH --partition=dpart
 #SBATCH --qos=default
+#SBATCH --mem=32gb
 #SBATCH --gres=gpu:p6000
 
 set -x
