@@ -30,7 +30,7 @@ class BaseAgent(object):
     def __init__(self, env, results_path):
         self.env = env
         self.results_path = results_path
-        random.seed(1)
+        #random.seed(1)
         self.results = {}
         self.losses = [] # For learning agents
 
@@ -91,8 +91,9 @@ class Seq2SeqAgent(BaseAgent):
       '<ignore>': (0, 0, 0)  # <ignore>
     }
 
-    def __init__(self, env, results_path, tok, episode_len=20):
+    def __init__(self, env, results_path, tok, episode_len=20, seed=1):
         super(Seq2SeqAgent, self).__init__(env, results_path)
+        random.seed(seed)
         self.tok = tok
         self.episode_len = episode_len
         self.feature_size = self.env.feature_size

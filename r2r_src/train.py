@@ -40,7 +40,7 @@ print(args); print('')
 ''' train the listener '''
 def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
     writer = SummaryWriter(log_dir=log_dir)
-    listner = Seq2SeqAgent(train_env, "", tok, args.maxAction)
+    listner = Seq2SeqAgent(train_env, "", tok, args.maxAction, seed=args.seed)
 
     record_file = open('./logs/' + args.name + '.txt', 'a')
     record_file.write(str(args) + '\n\n')
@@ -58,7 +58,7 @@ def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
     start = time.time()
     print('\nListener training starts, start iteration: %s' % str(start_iter))
 
-    best_val = {'val_unseen': {"spl": 0., "sr": 0., "state":"", 'update':False}}
+    best_val = {'val_unseen': {"spl": 0., "sr": 0., "state":"", 'update':False}, 'val_seen': {"spl": 0., "sr": 0., "state":"", 'update':False}}
 
     for idx in range(start_iter, start_iter+n_iters, log_every):
         listner.logs = defaultdict(list)
@@ -148,7 +148,7 @@ def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
 
 
 def valid(train_env, tok, val_envs={}):
-    agent = Seq2SeqAgent(train_env, "", tok, args.maxAction)
+    agent = Seq2SeqAgent(train_env, "", tok, args.maxAction, seed=args.seed)
 
     print("Loaded the listener model at iter %d from %s" % (agent.load(args.load), args.load))
 
@@ -175,7 +175,7 @@ def valid(train_env, tok, val_envs={}):
 
 
 def evaluate_with_outputs(train_env, tok, val_envs={}):
-    agent = Seq2SeqAgent(train_env, "", tok, args.maxAction)
+    agent = Seq2SeqAgent(train_env, "", tok, args.maxAction, seed=args.seed)
 
     print("Loaded the listener model at iter %d from %s" % (agent.load(args.load), args.load))
 
@@ -201,15 +201,16 @@ def evaluate_with_outputs(train_env, tok, val_envs={}):
             print("Saved eval info to ", file_path)
 
 
-def setup():
-    torch.manual_seed(1)
-    torch.cuda.manual_seed(1)
-    random.seed(0)
-    np.random.seed(0)
+def setup(seed):
+    print("Random seed: ", seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
 
 def train_val(test_only=False):
     ''' Train on the training set, and validate on seen and unseen splits. '''
-    setup()
+    setup(args.seed)
     tok = get_tokenizer(args)
 
     feat_dict = read_img_features(features, test_only=test_only)
@@ -221,7 +222,7 @@ def train_val(test_only=False):
         featurized_scans = set([key.split("_")[0] for key in list(feat_dict.keys())])
         val_env_names = ['val_train_seen', 'val_seen', 'val_unseen']
 
-    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok)
+    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok, name='train')
     from collections import OrderedDict
 
     #if args.submit:
@@ -258,7 +259,7 @@ def train_val_augment(test_only=False):
     """
     Train the listener with the augmented data
     """
-    setup()
+    setup(args.seed)
 
     # Create a batch training environment that will also preprocess text
     tok_bert = get_tokenizer(args)
@@ -276,7 +277,7 @@ def train_val_augment(test_only=False):
     # Load the augmentation data
     aug_path = args.aug
     # Create the training environment
-    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok_bert)
+    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok_bert, name='train')
     aug_env   = R2RBatch(feat_dict, batch_size=args.batchSize, splits=[aug_path], tokenizer=tok_bert, name='aug')
 
     # Setup the validation data

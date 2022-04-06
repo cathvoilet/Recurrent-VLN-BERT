@@ -140,6 +140,19 @@ class R2RBatch():
                             except:
                                 continue
 
+        # print(name, args.train_sampling)
+        if name == 'train' or name == 'aug':
+            if args.train_sampling < 1.0:
+                len_data = len(self.data)
+                print("Original training size: ", len_data)
+                num_samples = int(len_data * float(args.train_sampling))
+                random_indices = random.sample(range(len(self.data)), num_samples)
+                new_data = [self.data[i] for i in random_indices]
+                new_scans = [scans[i] for i in random_indices]
+                self.data = new_data
+                scans = new_scans
+                print("Sampled training size: ", len(self.data))
+
         if name is None:
             self.name = splits[0] if len(splits) > 0 else "FAKE"
         else:
