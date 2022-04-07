@@ -54,6 +54,7 @@ class Param:
         self.parser.add_argument('--epsilon', type=float, default=0.1)
         self.parser.add_argument('--seed', type=int, default=1)
         self.parser.add_argument('--train_sampling', type=float, default=1.0)
+        self.parser.add_argument('--no_rl', type=int, default=0)
 
         # Model hyper params:
         self.parser.add_argument("--angleFeatSize", dest="angle_feat_size", type=int, default=4)

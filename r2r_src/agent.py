@@ -107,6 +107,13 @@ class Seq2SeqAgent(BaseAgent):
             self.critic = model_PREVALENT.Critic().cuda()
         self.models = (self.vln_bert, self.critic)
 
+        if args.no_rl == 0:
+            self.no_rl = False
+            print("Using RL")
+        else:
+            self.no_rl = True
+            print("Not using RL")
+
         # Optimizers
         self.vln_bert_optimizer = args.optimizer(self.vln_bert.parameters(), lr=args.lr)
         self.critic_optimizer = args.optimizer(self.critic.parameters(), lr=args.lr)
@@ -237,6 +244,10 @@ class Seq2SeqAgent(BaseAgent):
         """
         if self.feedback == 'teacher' or self.feedback == 'argmax':
             train_rl = False
+
+        if self.no_rl:
+            train_rl = False
+            train_ml = 1.0
 
         if reset:  # Reset env
             obs = np.array(self.env.reset())
