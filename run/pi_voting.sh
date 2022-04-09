@@ -1,11 +1,11 @@
 #!/bin/bash
-#SBATCH --job-name=pi_vote_debug
-#SBATCH --output=slurm_logs/pi_vote_debug.out
-#SBATCH --error=slurm_logs/pi_vote_debug.err
+#SBATCH --job-name=pi_vote-1vln_test-5vln
+#SBATCH --output=slurm_logs/pi_vote-1vln_test-5vln.out
+#SBATCH --error=slurm_logs/pi_vote-1vln_test-5vln.err
 #SBATCH --time=3-00:00:00
 #SBATCH --partition=scavenger
 #SBATCH --qos=scavenger
-#SBATCH --mem=32gb
+#SBATCH --mem=16gb
 #SBATCH --gres=gpu:1
 
 set -x
@@ -13,11 +13,19 @@ module add cuda/8.0.44 cudnn/v5.1
 
 DOCKER=/vulcanscratch/lzhao/docker/vlnbert.sif
 
+vote_name="1vln"  # TODO: change
+test_name="5vln"  # TODO: change
 
-exp_dir="experiments/agents_vote_debug/"
+exp_dir="experiments/pi_vote-${vote_name}_test-${test_name}/"
 mkdir -p $exp_dir
 
-voting_agents=("VLNBERT-train-Prevalent" "VLNBERT-train-rs123")
+voting_agents=("VLNBERT-train-rs250")  # TODO: change
+testing_agents=("VLNBERT-train-rs100" "VLNBERT-train-rs123" "VLNBERT-train-rs150" "VLNBERT-train-rs175" "VLNBERT-train-rs200")  # TODO: change
+
+echo "Voting agents:"
+echo ${voting_agents[*]}
+echo "Testing agents:"
+echo ${testing_agents[*]}
 
 for agent in "${voting_agents[@]}"; do
     flag="--vlnbert prevalent
@@ -39,15 +47,20 @@ for agent in "${voting_agents[@]}"; do
       --featdropout 0.4
       --dropout 0.5"
     name="${agent}_pi_vote"
-    mkdir -p snap/$name
 
+    if [ -d "snap/$name" ]; then
+    # Control will enter here if $DIRECTORY exists.
+      echo "Directory snap/$name exists, skipping generating pi vote output file"
+      continue 
+    fi
+
+    mkdir -p snap/$name
     singularity exec --bind /vulcanscratch:/vulcanscratch --nv $DOCKER python3 -u r2r_src/train.py $flag --name $name
 done
 
+
 python3 prag_inf/vote_instructions.py --output_exp "$exp_dir" -input_exps "${voting_agents[@]}"
 
-
-testing_agents=("VLNBERT-PREVALENT-final")
 
 for agent in "${testing_agents[@]}"; do
     flag="--vlnbert prevalent
@@ -68,7 +81,8 @@ for agent in "${testing_agents[@]}"; do
       --angleFeatSize 128
       --featdropout 0.4
       --dropout 0.5"
-    name="${agent}_pi_test"
+    name="${agent}_${vote_name}_pi_test"
+
     mkdir -p snap/$name
 
     singularity exec --bind /vulcanscratch:/vulcanscratch --nv $DOCKER python3 -u r2r_src/train.py $flag --name $name
