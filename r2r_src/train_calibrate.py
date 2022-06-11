@@ -184,7 +184,7 @@ def evaluate_with_outputs(train_env, tok, val_envs={}):
         agent.env = env
 
         iters = None
-        agent.test(use_dropout=False, feedback='argmax', iters=iters)
+        k2label, k2predicted = agent.test(use_dropout=False, feedback='argmax', iters=iters)
         result = agent.get_results()
 
         score_summary, all_preds = evaluator.score(result)
@@ -197,6 +197,12 @@ def evaluate_with_outputs(train_env, tok, val_envs={}):
             file_path = os.path.join(log_dir, "%s.json" % filename)
             with open(file_path, 'w') as f:
                 json.dump(all_preds, f, indent=2)
+
+            with open(os.path.join(log_dir, "k2label.json"), 'w') as f:
+                json.dump(k2label, f, indent=2)
+
+            with open(os.path.join(log_dir, "k2predicted.json"), 'w') as f:
+                json.dump(k2predicted, f, indent=2)
 
             print("Saved eval info to ", file_path)
 

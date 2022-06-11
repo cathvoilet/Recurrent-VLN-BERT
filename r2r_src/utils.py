@@ -108,7 +108,14 @@ def load_speaker_outputs(input_files, tokenizer):
                 instruction = item['generated_instr']
                 if tokenizer:
                     instr_tokens = tokenizer.tokenize(instruction)
-                    padded_instr_tokens, num_words = pad_instr_tokens(instr_tokens, args.maxInput)
+                    padded = pad_instr_tokens(instr_tokens, args.maxInput)
+                    # if padded is None:
+                    #     print("Instruction id {} is empty:".format(instr_id))
+                    #     print(instruction)
+                    #     continue
+                        #padded_instr_tokens = ['[CLS]'] + instr_tokens + ['[SEP]']
+                    #else:
+                    padded_instr_tokens, num_words = padded[0], padded[1]
                     item['instr_encoding'] = tokenizer.convert_tokens_to_ids(padded_instr_tokens)
                 if 'result' in item:
                     del item['result']
@@ -123,8 +130,8 @@ def load_speaker_outputs(input_files, tokenizer):
 
 def pad_instr_tokens(instr_tokens, maxlength=20):
 
-    if len(instr_tokens) <= 2: #assert len(raw_instr_tokens) > 2
-        return None
+    #if len(instr_tokens) <= 2: #assert len(raw_instr_tokens) > 2
+    #    return None
 
     if len(instr_tokens) > maxlength - 2: # -2 for [CLS] and [SEP]
         instr_tokens = instr_tokens[:(maxlength-2)]

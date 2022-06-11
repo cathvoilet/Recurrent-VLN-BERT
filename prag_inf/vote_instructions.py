@@ -88,14 +88,14 @@ if __name__ == '__main__':
 
     metric = "avg"
 
-    input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_seen_eval.json" for agent in args.list]
+    input_file_list = ["snap/"+agent+"_pi_vote_speaker-clip/val_seen_sampled.json" for agent in args.list]
     print("Input file list: ", input_file_list)
     output_file = args.output_exp + "voted_best_" + metric + "_val_seen_eval.json"
     print("Output file: ", output_file)
     vote_instructions(input_file_list, output_file, metric=metric)
 
-    input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]
-    print("Input file list: ", input_file_list)
-    output_file = args.output_exp + "voted_best_" + metric + "_val_unseen_eval.json"
-    print("Output file: ", output_file)
-    vote_instructions(input_file_list, output_file, metric=metric)
+    # input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]
+    # print("Input file list: ", input_file_list)
+    # output_file = args.output_exp + "voted_best_" + metric + "_val_unseen_eval.json"
+    # print("Output file: ", output_file)
+    # vote_instructions(input_file_list, output_file, metric=metric)

@@ -167,13 +167,15 @@ class Seq2SeqAgent(BaseAgent):
 
     def get_input_feat(self, obs):
         input_a_t = np.zeros((len(obs), args.angle_feat_size), np.float32)
+        input_a_t_values = []
         for i, ob in enumerate(obs):
             input_a_t[i] = utils.angle_feature(ob['heading'], ob['elevation'])
+            input_a_t_values.append(round(ob['heading'] * 12 + ob['elevation'], 2))
         input_a_t = torch.from_numpy(input_a_t).cuda()
         # f_t = self._feature_variable(obs)      # Pano image features from obs
         candidate_feat, candidate_leng = self._candidate_variable(obs)
 
-        return input_a_t, candidate_feat, candidate_leng
+        return input_a_t, input_a_t_values, candidate_feat, candidate_leng
 
     def _teacher_action(self, obs, ended):
         """
@@ -183,22 +185,45 @@ class Seq2SeqAgent(BaseAgent):
         :return:
         """
         a = np.zeros(len(obs), dtype=np.int64)
+        a_values = []
         for i, ob in enumerate(obs):
             if ended[i]:                                            # Just ignore this index
                 a[i] = args.ignoreid
+                a_values.append(36)
             else:
-                print("Number of candidates: ", len(ob['candidate']))
                 for k, candidate in enumerate(ob['candidate']):
                     if candidate['viewpointId'] == ob['teacher']:   # Next view point
-                        print("Teacher action ob[teacher]: ", ob['teacher'])
-                        print("Candidate: ", candidate)
-                        print("k: ", k)
+                        #print("Teacher action selected candidate: ", candidate)
+                        #a_values.append(int(candidate['normalized_heading'] * 12 + candidate['elevation']) % 36)
+                        a_values.append(candidate['pointId'])
                         a[i] = k
                         break
                 else:   # Stop here
                     assert ob['teacher'] == ob['viewpoint']         # The teacher action should be "STAY HERE"
                     a[i] = len(ob['candidate'])
-        return torch.from_numpy(a).cuda()
+                    a_values.append(36)
+        return torch.from_numpy(a).cuda(), a_values
+
+    def get_action_values(self, actions, perm_obs, perm_idx=None):
+        action_values = []
+
+        if perm_idx is None:
+            perm_idx = range(len(perm_obs))
+
+        for i, idx in enumerate(perm_idx):
+            #if i >= len(actions):
+            #    break
+            action = actions[i]
+            if action != -1:            # -1 is the <stop> action
+                #if action < len(perm_obs[i]['candidate']):
+                select_candidate = perm_obs[i]['candidate'][action]
+                action_values.append(select_candidate['pointId'])
+                #else:
+                #    action_values.append(36)
+            else:
+                action_values.append(36)
+
+        return action_values
 
     def make_equiv_action(self, a_t, perm_obs, perm_idx=None, traj=None):
         """
@@ -214,10 +239,13 @@ class Seq2SeqAgent(BaseAgent):
         if perm_idx is None:
             perm_idx = range(len(perm_obs))
 
+        a_t_values = []
+
         for i, idx in enumerate(perm_idx):
             action = a_t[i]
             if action != -1:            # -1 is the <stop> action
                 select_candidate = perm_obs[i]['candidate'][action]
+                a_t_values.append(select_candidate['pointId'])
                 src_point = perm_obs[i]['viewIndex']
                 trg_point = select_candidate['pointId']
                 src_level = (src_point ) // 12  # The point idx started from 0
@@ -237,6 +265,11 @@ class Seq2SeqAgent(BaseAgent):
                 state = self.env.env.sims[idx].getState()
                 if traj is not None:
                     traj[i]['path'].append((state.location.viewpointId, state.heading, state.elevation))
+
+            else:
+                a_t_values.append(0)
+
+        return a_t_values
 
     def rollout(self, train_ml=None, train_rl=True, reset=True):
         """
@@ -301,9 +334,12 @@ class Seq2SeqAgent(BaseAgent):
         entropys = []
         ml_loss = 0.
 
+        #k2predicted = defaultdict(list)
+        #k2label = defaultdict(list)
+
         for t in range(self.episode_len):
 
-            input_a_t, candidate_feat, candidate_leng = self.get_input_feat(perm_obs)
+            input_a_t, input_a_t_values, candidate_feat, candidate_leng = self.get_input_feat(perm_obs)
 
             # the first [CLS] token, initialized by the language BERT, serves
             # as the agent's state passing through time steps
@@ -333,8 +369,9 @@ class Seq2SeqAgent(BaseAgent):
             logit.masked_fill_(candidate_mask, -float('inf'))
 
             # Supervised training
-            target = self._teacher_action(perm_obs, ended)
-            print("Calibration target action:", target)
+            target, target_values = self._teacher_action(perm_obs, ended)
+            #print("Calibration target action:", target)
+            #print("Calibration target action values:", target_values)
             ml_loss += self.criterion(logit, target)
 
             # Determine next model inputs
@@ -344,7 +381,15 @@ class Seq2SeqAgent(BaseAgent):
                 _, a_t = logit.max(1)        # student forcing - argmax
                 a_t = a_t.detach()
                 log_probs = F.log_softmax(logit, 1)                              # Calculate the log_prob here
-                print("Calibration predicted action:", a_t)
+                #print("logit shape: ", logit.size())
+                #print("Calibration predicted action:", a_t)
+                #print("log_probs: ", log_probs)
+                probs = F.softmax(logit, 1)  # sampling an action from model
+                #c = torch.distributions.Categorical(probs)
+                #print("probs: ", probs)
+                #print("probs shape: ", probs.size())
+                #print("gathered probs shape: ", log_probs.gather(1, a_t.unsqueeze(1)).size())
+
                 policy_log_probs.append(log_probs.gather(1, a_t.unsqueeze(1)))   # Gather the log_prob for each batch
             elif self.feedback == 'sample':
                 probs = F.softmax(logit, 1)  # sampling an action from model
@@ -364,6 +409,38 @@ class Seq2SeqAgent(BaseAgent):
                     cpu_a_t[i] = -1             # Change the <end> and ignore action to -1
 
             # Make action and get the new state
+            #a_t_values = self.make_equiv_action(cpu_a_t, perm_obs, perm_idx, traj)
+            a_t_values = self.get_action_values(cpu_a_t, perm_obs, perm_idx=perm_idx)
+            #print("Calibration predicted action values:", a_t_values)
+            probs = probs.detach().cpu().numpy()
+            action_size = np.shape(probs)[1]
+            #print("action_size: ", action_size)
+            #all_action_values = self.get_action_values([i for i in range(action_size)], perm_obs, perm_idx=perm_idx)
+
+            if len(a_t_values) != len(target_values):
+                print("Predicted action values length not equal to target values length")
+            else:
+                for v_idx, target_value in enumerate(target_values):
+                    for k in range(37):
+                        if k == target_value:
+                            self.k2label[k].append(1)
+                        else:
+                            self.k2label[k].append(0)
+
+                for batch_i in range(len(probs)):
+                    action2probs = defaultdict(float)
+                    for action_j in range(len(probs[batch_i])):
+                        if action_j < len(perm_obs[batch_i]['candidate']):
+                            select_candidate = perm_obs[batch_i]['candidate'][action_j]
+                            selected_k = select_candidate['pointId']  # may duplicate
+                            action2probs[selected_k] += probs[batch_i][action_j]
+
+                    for k in range(37):
+                        if k in action2probs:
+                            self.k2predicted[k].append(action2probs[k])
+                        else:
+                            self.k2predicted[k].append(0.0)
+
             self.make_equiv_action(cpu_a_t, perm_obs, perm_idx, traj)
             obs = np.array(self.env._get_obs())
             perm_obs = obs[perm_idx]            # Perm the obs for the resu
@@ -416,9 +493,18 @@ class Seq2SeqAgent(BaseAgent):
             if ended.all():
                 break
 
+        # print("k2label[18]: ", k2label[18])
+        # print("k2label[18] shape: ", len(k2label[18]))
+        # print("k2predicted[18]: ", k2predicted[18])
+        # print("k2predicted[18] shape: ", len(k2predicted[18]))
+        # print("k2label[1] shape: ", len(k2label[1]))
+        # print("k2predicted[1] shape: ", len(k2predicted[1]))
+        # print("k2label[2] shape: ", len(k2label[2]))
+        # print("k2predicted[2] shape: ", len(k2predicted[2]))
+
         if train_rl:
             # Last action in A2C
-            input_a_t, candidate_feat, candidate_leng = self.get_input_feat(perm_obs)
+            input_a_t, _, candidate_feat, candidate_leng = self.get_input_feat(perm_obs)
 
             language_features = torch.cat((h_t.unsqueeze(1), language_features[:,1:,:]), dim=1)
 
@@ -492,6 +578,8 @@ class Seq2SeqAgent(BaseAgent):
     def test(self, use_dropout=False, feedback='argmax', allow_cheat=False, iters=None):
         ''' Evaluate once on each instruction in the current environment '''
         self.feedback = feedback
+        self.k2predicted = defaultdict(list)
+        self.k2label = defaultdict(list)
         if use_dropout:
             self.vln_bert.train()
             self.critic.train()
@@ -499,6 +587,21 @@ class Seq2SeqAgent(BaseAgent):
             self.vln_bert.eval()
             self.critic.eval()
         super(Seq2SeqAgent, self).test(iters)
+        #print("k2label[18]: ", self.k2label[18])
+        print("k2label[18] shape: ", len(self.k2label[18]))
+        #print("k2predicted[18]: ", self.k2predicted[18])
+        print("k2predicted[18] shape: ", len(self.k2predicted[18]))
+        print("k2label[1] shape: ", len(self.k2label[1]))
+        print("k2predicted[1] shape: ", len(self.k2predicted[1]))
+        print("k2label[2] shape: ", len(self.k2label[2]))
+        print("k2predicted[2] shape: ", len(self.k2predicted[2]))
+
+        return self.k2label, self.k2predicted
+
+        #prob_true, prob_pred = calibration_curve(self.k2label[18], self.k2predicted[18], n_bins=5)
+        #print("Calibration bin true: ", prob_true)
+        #print("Calibration bin predict: ", prob_pred)
+
 
     def zero_grad(self):
         self.loss = 0.
