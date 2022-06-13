@@ -1,6 +1,7 @@
 import torch
 
 import os
+import sys
 import time
 import json
 import random
@@ -176,21 +177,43 @@ def valid(train_env, tok, val_envs={}):
 
 def evaluate_with_outputs(train_env, tok, val_envs={}):
     agent = Seq2SeqAgent(train_env, "", tok, args.maxAction, seed=args.seed)
+    feedback = args.decode_feedback
+    sample_size = 10
 
     print("Loaded the listener model at iter %d from %s" % (agent.load(args.load), args.load))
+    print("Feedback method: ", feedback)
+    print("Sample size: ", sample_size)
 
     for env_name, (env, evaluator) in val_envs.items():
         agent.logs = defaultdict(list)
         agent.env = env
 
-        iters = None
-        agent.test(use_dropout=False, feedback='argmax', iters=iters)
-        result = agent.get_results()
+        if feedback == 'argmax':
+            iters = None
+            agent.test(use_dropout=False, feedback=feedback, iters=iters)
+            result = agent.get_results()
 
-        score_summary, all_preds = evaluator.score(result)
-        loss_str = "Env name: %s, " % env_name
-        loss_str += format_results(score_summary)
-        print(loss_str)
+            score_summary, all_preds = evaluator.score(result)
+            loss_str = "Env name: %s, " % env_name
+            loss_str += format_results(score_summary)
+            print(loss_str)
+
+        elif feedback == 'sample':
+            for k in range(sample_size):
+                iters = None
+                agent.test(use_dropout=False, feedback=feedback, iters=iters)
+                result = agent.get_results()
+
+                score_summary, all_preds = evaluator.score(result, sample_idx=k)
+                evaluator.gt = all_preds
+                loss_str = "Env name: %s, " % env_name
+                loss_str += "Sample index: %s, " % str(k)
+                loss_str += format_results(score_summary)
+                print(loss_str)
+
+        else:
+            print("Unknown decode feedback method: ", feedback)
+            sys.exit()
 
         if args.submit:
             filename = os.path.basename(env_name).split(".")[0]

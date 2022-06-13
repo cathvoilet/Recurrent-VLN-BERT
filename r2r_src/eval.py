@@ -79,7 +79,7 @@ class Evaluation(object):
         return self.compute_ndtw(scan, pred_path, gold_path)
 
 
-    def _score_item(self, instr_id, path):
+    def _score_item(self, instr_id, path, sample_idx=None):
         ''' Calculate error based on the final position in trajectory, and also
             the closest position (oracle stopping rule).
             The path contains [view_id, angle, vofv] '''
@@ -125,11 +125,15 @@ class Evaluation(object):
 
         # save pred_path and scores
         if self.speaker_outputs:
-            self.gt[instr_id]["pred_path"] = pred_path
-            self.gt[instr_id]["result"] = result
+            if sample_idx is None:
+                self.gt[instr_id]["pred_path"] = pred_path
+                self.gt[instr_id]["result"] = result
+            else:
+                self.gt[instr_id]["pred_path_sample_" + str(sample_idx)] = pred_path
+                self.gt[instr_id]["result_sample_" + str(sample_idx)] = result
 
 
-    def score(self, output_file):
+    def score(self, output_file, sample_idx=None):
         ''' Evaluate each agent trajectory based on how close it got to the goal location '''
         self.scores = defaultdict(list)
         instr_ids = set(self.instr_ids)
@@ -145,7 +149,7 @@ class Evaluation(object):
             # Check against expected ids
             if item['instr_id'] in instr_ids:
                 instr_ids.remove(item['instr_id'])
-                self._score_item(item['instr_id'], item['trajectory'])
+                self._score_item(item['instr_id'], item['trajectory'], sample_idx=sample_idx)
 
         print('number of remaining instr ids: ', len(instr_ids))
         print(instr_ids)

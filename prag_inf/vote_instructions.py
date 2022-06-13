@@ -5,19 +5,33 @@ import logging
 from collections import defaultdict
 
 
-def vote_instructions(input_file_list, output_file, key="ndtw", metric="avg"):
+def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", metric="avg"):
     instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
 
+    count_scores = 0
     for input_file in input_file_list:
         with open(input_file) as f:
             tmp_data = json.load(f)
             for instr_id, item in tmp_data.items():
-                score = item['result'][key]
-                instrid2scores[instr_id].append(score)
+                if not result_sample:
+                    score = item['result'][key]
+                    instrid2scores[instr_id].append(score)
+
+                else:
+                    scores = []
+                    for k in range(result_sample):
+                        result_key = "result_sample_{}".format(k)
+                        score = item[result_key][key]
+                        scores.append(score)
+                        count_scores += 1
+                    instrid2scores[instr_id].append(np.average(scores))
+
                 path_id = instr_id.split("_")[0]
                 if instr_id not in path2instrids[path_id]:
                     path2instrids[path_id].append(instr_id)
+
+    print("Number of scores counted:", count_scores)
 
     best_instructions = []
     print("Agent scores metric: ", metric)
@@ -35,6 +49,12 @@ def vote_instructions(input_file_list, output_file, key="ndtw", metric="avg"):
         tmp_data = json.load(f)
         for instr_id, item in tmp_data.items():
             if instr_id in best_instructions:
+                if result_sample:
+                    for k in range(result_sample):
+                        result_key = "result_sample_{}".format(k)
+                        path_key = "pred_path_sample_{}".format(k)
+                        del item[result_key]
+                        del item[path_key]
                 all_preds[item['instr_id']] = item
                 count += 1
 
@@ -84,15 +104,16 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_exp', help='output exp dir')
     parser.add_argument('-input_exps', '--list', nargs='+', help='input exps list', required=True)
+    parser.add_argument('--result_sample', type=int, default=0)  # 0, 10
     args = parser.parse_args()
 
     metric = "avg"
 
-    input_file_list = ["snap/"+agent+"_pi_vote_speaker-clip/val_seen_sampled.json" for agent in args.list]
+    input_file_list = ["snap/"+agent+"_pi-vote-sample_speaker-clip-10/val_seen_sampled.json" for agent in args.list]
     print("Input file list: ", input_file_list)
     output_file = args.output_exp + "voted_best_" + metric + "_val_seen_eval.json"
     print("Output file: ", output_file)
-    vote_instructions(input_file_list, output_file, metric=metric)
+    vote_instructions(input_file_list, output_file, args.result_sample, metric=metric)
 
     # input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]
     # print("Input file list: ", input_file_list)
