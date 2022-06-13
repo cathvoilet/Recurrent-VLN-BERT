@@ -9,6 +9,9 @@ def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", m
     instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
 
+    instrid2scores_list = defaultdict(lambda: defaultdict(list))
+    metrics = ['dist', 'path_len', 'score', 'spl', 'ndtw', 'sdtw']
+
     count_scores = 0
     for input_file in input_file_list:
         with open(input_file) as f:
@@ -17,15 +20,23 @@ def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", m
                 if not result_sample:
                     score = item['result'][key]
                     instrid2scores[instr_id].append(score)
-
+                    for metric_key in metrics:
+                        metric_score = item['result'][metric_key]
+                        instrid2scores_list[instr_id][metric_key].append(float(metric_score))
                 else:
                     scores = []
+                    metric2scores = defaultdict(list)
                     for k in range(result_sample):
                         result_key = "result_sample_{}".format(k)
                         score = item[result_key][key]
                         scores.append(score)
                         count_scores += 1
+                        for metric_key in metrics:
+                            metric_score = item[result_key][metric_key]
+                            metric2scores[metric_key].append(float(metric_score))
                     instrid2scores[instr_id].append(np.average(scores))
+                    for metric_key in metrics:
+                        instrid2scores_list[instr_id][metric_key].append(np.average(metric2scores[metric_key]))
 
                 path_id = instr_id.split("_")[0]
                 if instr_id not in path2instrids[path_id]:
@@ -55,6 +66,15 @@ def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", m
                         path_key = "pred_path_sample_{}".format(k)
                         del item[result_key]
                         del item[path_key]
+                else:
+                    del item["result"]
+                    del item["pred_path"]
+                metric_scores_list = instrid2scores_list[instr_id]
+                avg_scores = {}
+                for key, scores in metric_scores_list.items():
+                    avg_score = np.average(scores)
+                    avg_scores[key] = avg_score
+                item['avg_voting_result'] = avg_scores
                 all_preds[item['instr_id']] = item
                 count += 1
 
@@ -109,7 +129,8 @@ if __name__ == '__main__':
 
     metric = "avg"
 
-    input_file_list = ["snap/"+agent+"_pi-vote-sample_speaker-clip-10/val_seen_sampled.json" for agent in args.list]
+    # input_file_list = ["snap/"+agent+"_pi_vote_speaker-clip/val_seen_sampled.json" for agent in args.list]
+    input_file_list = ["snap/" + agent + "_pi-vote-sample_speaker-clip-10/val_seen_sampled.json" for agent in args.list]
     print("Input file list: ", input_file_list)
     output_file = args.output_exp + "voted_best_" + metric + "_val_seen_eval.json"
     print("Output file: ", output_file)
