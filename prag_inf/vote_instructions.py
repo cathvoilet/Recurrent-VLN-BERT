@@ -5,7 +5,7 @@ import logging
 from collections import defaultdict
 
 
-def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", metric="avg"):
+def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, key="ndtw", metric="avg"):
     instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
 
@@ -18,6 +18,7 @@ def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", m
             tmp_data = json.load(f)
             for instr_id, item in tmp_data.items():
                 if not result_sample:
+                    count_scores += 1
                     score = item['result'][key]
                     instrid2scores[instr_id].append(score)
                     for metric_key in metrics:
@@ -47,7 +48,7 @@ def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", m
     best_instructions = []
     print("Agent scores metric: ", metric)
     if metric == "avg":
-        best_instructions = best_avg(instrid2scores, path2instrids)
+        best_instructions = best_avg(instrid2scores, path2instrids, output_duplicate_instrs)
     elif metric == "median":
         best_instructions = best_median(instrid2scores, path2instrids)
     elif metric == "mean-std":
@@ -85,12 +86,19 @@ def vote_instructions(input_file_list, output_file, result_sample, key="ndtw", m
     logging.info('Saved eval info to %s' % output_file)
 
 
-def best_avg(instrid2scores, path2instrids):
+def best_avg(instrid2scores, path2instrids, output_duplicate_instrs):
     best_instructions = []
     for path_id, instr_ids in path2instrids.items():
         instr_scores = np.array([sum(instrid2scores[instr_id]) for instr_id in instr_ids])
-        max_instr_idx = np.argmax(instr_scores)
-        best_instructions.append(instr_ids[max_instr_idx])
+        max_score = max(instr_scores)
+        if not output_duplicate_instrs:
+            max_instr_idx = np.argmax(instr_scores)
+            best_instructions.append(instr_ids[max_instr_idx])
+
+        elif max_score > 0.0:
+            max_instr_indices = [i for i, j in enumerate(instr_scores) if j == max_score]
+            best_instructions += [instr_ids[x] for x in max_instr_indices]
+
     return best_instructions
 
 
@@ -123,18 +131,30 @@ def best_mean_std(instrid2scores, path2instrids):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--output_exp', help='output exp dir')
+    parser.add_argument('--input_path', help='input file path')
+    parser.add_argument('--output_duplicate_instrs', type=int, default=0)
     parser.add_argument('-input_exps', '--list', nargs='+', help='input exps list', required=True)
     parser.add_argument('--result_sample', type=int, default=0)  # 0, 10
     args = parser.parse_args()
 
     metric = "avg"
+    score_metric = "sdtw"
+    print("Choose by best ", score_metric)
+    print("Allow duplicate instrs: ", args.output_duplicate_instrs)
 
     # input_file_list = ["snap/"+agent+"_pi_vote_speaker-clip/val_seen_sampled.json" for agent in args.list]
-    input_file_list = ["snap/" + agent + "_pi-vote-sample_speaker-clip-10/val_seen_sampled.json" for agent in args.list]
+    #input_file_list = ["snap/" + agent + "_pi-vote-sample_speaker-gpt/speaker11_val_seen_eval.json" for agent in args.list]
+    #input_file_list = ["snap/" + agent + "_pi_vote_speaker-perturb_ref/swap_entity_direction_val_unseen.json" for agent in args.list]
+    #input_file_list = ["snap/" + agent + "_pi_vote_speaker-9models/9models_50routes_val_seen.json" for agent in args.list]
+    #input_file_list = ["snap/" + agent + "_pi-vote-sample_speaker-clip-10/val_seen_sampled.json" for agent in args.list]
+    #input_file_list = ["snap/" + agent + "_pi-vote_speaker-clip-10_test-sample/voted_best_avg_val_seen_eval.json" for agent in args.list]
+    # input_file_list = ["snap/" + agent + "_pi_vote-sample_speaker-gpt_best10ila_beam/speaker-gpt_beam_vote_10ila_combined_val_seen.json" for agent in args.list]
+    input_file_list = ["snap/" + agent + "_" + args.input_path for agent in args.list]
     print("Input file list: ", input_file_list)
     output_file = args.output_exp + "voted_best_" + metric + "_val_seen_eval.json"
     print("Output file: ", output_file)
-    vote_instructions(input_file_list, output_file, args.result_sample, metric=metric)
+    vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, metric=metric, key=score_metric)
+    #vote_instructions(input_file_list, output_file, args.result_sample, metric=metric, key="score")
 
     # input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]
     # print("Input file list: ", input_file_list)
