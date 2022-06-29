@@ -75,9 +75,9 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file):
     print("Labels:\n", labels)
     print("Predictions:\n", predictions)
 
-    f1 = f1_score(labels, predictions, average='macro')
-    precision = precision_score(labels, predictions, average='macro')
-    recall = recall_score(labels, predictions, average='macro')
+    f1 = f1_score(labels, predictions)
+    precision = precision_score(labels, predictions)
+    recall = recall_score(labels, predictions)
     accuracy = accuracy_score(labels, predictions)
     cm = confusion_matrix(labels, predictions, labels=[0, 1])
     cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
