@@ -5,12 +5,12 @@ import logging
 from collections import defaultdict
 
 
-def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, key="ndtw", metric="avg"):
+def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs, key="ndtw", metric="avg"):
     instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
 
     instrid2scores_list = defaultdict(lambda: defaultdict(list))
-    metrics = ['dist', 'path_len', 'score', 'spl', 'ndtw', 'sdtw']
+    metrics = ['score', 'spl', 'ndtw', 'sdtw']
 
     count_scores = 0
     for input_file in input_file_list:
@@ -49,12 +49,15 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
     print("Agent scores metric: ", metric)
     if metric == "avg":
         best_instructions = best_avg(instrid2scores, path2instrids, output_duplicate_instrs)
-    elif metric == "median":
-        best_instructions = best_median(instrid2scores, path2instrids)
-    elif metric == "mean-std":
-        best_instructions = best_mean_std(instrid2scores, path2instrids)
+    # elif metric == "median":
+    #     best_instructions = best_median(instrid2scores, path2instrids)
+    # elif metric == "mean-std":
+    #     best_instructions = best_mean_std(instrid2scores, path2instrids)
     elif metric == "product":
         best_instructions = best_product(instrid2scores, path2instrids, output_duplicate_instrs)
+
+    if output_all_instrs:
+        best_instructions = list(instrid2scores.keys())
 
     # get instruction items by best ids
     all_preds = {}
@@ -73,11 +76,15 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
                     del item["result"]
                     del item["pred_path"]
                 metric_scores_list = instrid2scores_list[instr_id]
-                avg_scores = {}
+                overall_scores = {}
                 for key, scores in metric_scores_list.items():
-                    avg_score = np.average(scores)
-                    avg_scores[key] = avg_score
-                item['avg_voting_result'] = avg_scores
+                    if metric == "avg":
+                        overall_score = np.average(scores)
+                    elif metric == "product":
+                        # overall_score = sum(np.log(scores))
+                        overall_score = np.product(scores)
+                    overall_scores[key] = overall_score
+                item['overall_voting_result'] = overall_scores
                 all_preds[item['instr_id']] = item
                 count += 1
 
@@ -151,6 +158,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_exp', help='output exp dir')
     parser.add_argument('--input_path', help='input file path')
     parser.add_argument('--output_duplicate_instrs', type=int, default=0)
+    parser.add_argument('--output_all_instrs', type=int, default=0)
     parser.add_argument('--metric', type=str, default="avg")
     parser.add_argument('-input_exps', '--list', nargs='+', help='input exps list', required=True)
     parser.add_argument('--result_sample', type=int, default=0)  # 0, 10
@@ -160,6 +168,7 @@ if __name__ == '__main__':
     score_metric = "sdtw"
     print("Choose by best ", score_metric)
     print("Allow duplicate instrs: ", args.output_duplicate_instrs)
+    print("Outputing all instrs: ", args.output_all_instrs)
 
     # input_file_list = ["snap/"+agent+"_pi_vote_speaker-clip/val_seen_sampled.json" for agent in args.list]
     #input_file_list = ["snap/" + agent + "_pi-vote-sample_speaker-gpt/speaker11_val_seen_eval.json" for agent in args.list]
@@ -170,9 +179,12 @@ if __name__ == '__main__':
     # input_file_list = ["snap/" + agent + "_pi_vote-sample_speaker-gpt_best10ila_beam/speaker-gpt_beam_vote_10ila_combined_val_seen.json" for agent in args.list]
     input_file_list = ["snap/" + agent + "_" + args.input_path for agent in args.list]
     print("Input file list: ", input_file_list)
-    output_file = args.output_exp + "voted_best_" + args.metric + "_val_seen_eval.json"
+    if args.output_all_instrs:
+        output_file = args.output_exp + "voted_all_" + args.metric + "_val_seen_eval.json"
+    else:
+        output_file = args.output_exp + "voted_best_" + args.metric + "_val_seen_eval.json"
     print("Output file: ", output_file)
-    vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, metric=args.metric, key=score_metric)
+    vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, args.output_all_instrs, metric=args.metric, key=score_metric)
     #vote_instructions(input_file_list, output_file, args.result_sample, metric=metric, key="score")
 
     # input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]
