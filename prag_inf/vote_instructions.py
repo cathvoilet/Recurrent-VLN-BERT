@@ -103,8 +103,8 @@ def best_avg(instrid2scores, path2instrids, output_duplicate_instrs):
         if not output_duplicate_instrs:
             max_instr_idx = np.argmax(instr_scores)
             best_instructions.append(instr_ids[max_instr_idx])
-
-        elif max_score > 0.0:
+        else:
+        #elif max_score > 0.0:
             max_instr_indices = [i for i, j in enumerate(instr_scores) if j == max_score]
             best_instructions += [instr_ids[x] for x in max_instr_indices]
 
@@ -119,8 +119,8 @@ def best_product(instrid2scores, path2instrids, output_duplicate_instrs):
         if not output_duplicate_instrs:
             max_instr_idx = np.argmax(instr_scores)
             best_instructions.append(instr_ids[max_instr_idx])
-
-        elif max_score != float("-inf"):
+        else:
+        #elif max_score != 0.0:
             max_instr_indices = [i for i, j in enumerate(instr_scores) if j == max_score]
             best_instructions += [instr_ids[x] for x in max_instr_indices]
 

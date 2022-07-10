@@ -5,7 +5,7 @@ import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix, average_precision_score
 
 
-def compute_listener_score1(input_json_file):
+def compute_listener_score1(input_json_file, input_complete_json_file):
     path_list = []
     model2count = defaultdict(int)
     path2models_counted = defaultdict(list)
@@ -91,60 +91,70 @@ def compute_listener_score2(input_voted_json_file, input_complete_json_file):
 
 
 def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw"):
-    print("Rank instructions by: ", score_metric)
+    print("\nRank instructions by: ", score_metric)
     # excluded_models = ["pi_vote-10ila_test-10vln", "speaker_gpt2_db7", "pi_vote-1ila_test-5vln", "speaker-clip_greedy",
     #                   "speaker-clip_vote-10ila", "speaker-clip_vote-1ila", "speaker-gpt_pi-10ila-sample", "speaker-clip10_pi-10ila-sample"]
-
-    path2voted_instrs = defaultdict(list)
-    with open(input_voted_json_file) as f:
-        tmp_data = json.load(f)
-        for instr_id, item in tmp_data.items():
-            path_id = instr_id.split("_")[0]
-            path2voted_instrs[path_id].append((instr_id, item['overall_voting_result'][score_metric]))  # TODO: try exponential
-
-    path2positive_instrs = defaultdict(list)
-    path2negative_instrs = defaultdict(list)
-    with open(input_complete_json_file) as f:
-        tmp_data = json.load(f)
-        for instr_id, item in tmp_data.items():
-            path_id = instr_id.split("_")[0]
-            if item['instr_label'] == "positive" or item['model'] == "speaker_ref_agent1_eval":
-                path2positive_instrs[path_id].append(instr_id)
-            elif item['instr_label'] == "negative":
-                path2negative_instrs[path_id].append(instr_id)
-            else:
-                print("Unknown instr label: ", item['instr_label'])
-
     count_paths = 0
-    path2instr_labels = defaultdict(list)
     avg_precision_list = []
-    for path_id, negative_instrs in path2negative_instrs.items():
-        count_paths += 1
-        positive_instrs = path2positive_instrs[path_id]
-        voted_instrs = list(path2voted_instrs[path_id])
-        instr_labels = []
-        for instr_id, score in voted_instrs:
-            if instr_id in positive_instrs:
-                instr_labels.append((instr_id, 1))
-            elif instr_id in negative_instrs:
-                instr_labels.append((instr_id, 0))
-            else:
-                print("WARNING: instr id not in either positive or negative category: ", instr_id)
-        path2instr_labels[path_id] = instr_labels
-        y_true = np.array([x[1] for x in instr_labels])
-        y_predict = np.array([x[1] for x in voted_instrs])
-        avg_precision = average_precision_score(y_true, y_predict)
-        avg_precision_list.append(avg_precision)
-        # if count_paths <= 2:
-        #     print("\nPath id: ", path_id)
-        #     print("Instr labels: ", instr_labels)
-        #     print("Instr predicted scores: ", voted_instrs)
-        #     print("y_true: ", y_true)
-        #     print("y_predict: ", y_predict)
-        #     print("avg precision: ", avg_precision)
+    ref_systems = [0, 1, 2]
+    for ref_system in ref_systems:
+        path2voted_instrs = defaultdict(list)
+        with open(input_voted_json_file) as f:
+            tmp_data = json.load(f)
+            for instr_id, item in tmp_data.items():
+                if item["ref_id"] != ref_system:
+                    continue
+                path_id = instr_id.split("_")[0]
+                path2voted_instrs[path_id].append((instr_id, item['overall_voting_result'][score_metric]))
+
+        path2positive_instrs = defaultdict(list)
+        path2negative_instrs = defaultdict(list)
+        with open(input_complete_json_file) as f:
+            tmp_data = json.load(f)
+            for instr_id, item in tmp_data.items():
+                if item["ref_id"] != ref_system:
+                    continue
+                path_id = instr_id.split("_")[0]
+                if item['instr_label'] == "positive" or item['model'] == "speaker_ref_agent1_eval":
+                    path2positive_instrs[path_id].append(instr_id)
+                elif item['instr_label'] == "negative":
+                    path2negative_instrs[path_id].append(instr_id)
+                else:
+                    print("Unknown instr label: ", item['instr_label'])
+
+        # count_paths = 0
+        path2instr_labels = defaultdict(list)
+        # avg_precision_list = []
+        sorted_path_ids = sorted(list(path2negative_instrs.keys()))
+
+        for path_id in sorted_path_ids:
+            count_paths += 1
+            positive_instrs = path2positive_instrs[path_id]
+            negative_instrs = path2negative_instrs[path_id]
+            voted_instrs = list(path2voted_instrs[path_id])
+            instr_labels = []
+            for instr_id, score in voted_instrs:
+                if instr_id in positive_instrs:
+                    instr_labels.append((instr_id, 1))
+                elif instr_id in negative_instrs:
+                    instr_labels.append((instr_id, 0))
+                else:
+                    print("WARNING: instr id not in either positive or negative category: ", instr_id)
+            path2instr_labels[path_id] = instr_labels
+            y_true = np.array([x[1] for x in instr_labels])
+            y_predict = np.array([x[1] for x in voted_instrs])
+            avg_precision = average_precision_score(y_true, y_predict)
+            avg_precision_list.append(avg_precision)
+            # if count_paths <= 2:
+            #     print("\nPath id: ", path_id)
+            #     print("Instr labels: ", instr_labels)
+            #     print("Instr predicted scores: ", voted_instrs)
+            #     print("y_true: ", y_true)
+            #     print("y_predict: ", y_predict)
+            #     print("avg precision: ", avg_precision)
 
     mean_avg_precision = sum(avg_precision_list) * 1.0 / count_paths
-    print("\nAvg precision_list: ", avg_precision_list)
+    print("\nAvg precision_list: \n", avg_precision_list)
     print("\nNumber of paths counted: ", count_paths)
     print("Mean average precision: ", mean_avg_precision)
 
@@ -154,4 +164,7 @@ if __name__ == '__main__':
     parser.add_argument('--input_voted_json_file', help='input voted file')
     parser.add_argument('--input_complete_json_file', help='input original file')
     args = parser.parse_args()
-    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file)
+    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="ndtw")
+    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="sdtw")
+    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="spl")
+    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="score")
