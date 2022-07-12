@@ -2,6 +2,8 @@ import json
 import argparse
 from collections import defaultdict
 import numpy as np
+import random
+from scipy.stats import sem
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix, average_precision_score
 
 
@@ -90,7 +92,7 @@ def compute_listener_score2(input_voted_json_file, input_complete_json_file):
     print(cm)
 
 
-def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw"):
+def compute_listener_score3(input_voted_json_file, input_complete_json_file, score_metric="ndtw"):
     print("\nRank instructions by: ", score_metric)
     # excluded_models = ["pi_vote-10ila_test-10vln", "speaker_gpt2_db7", "pi_vote-1ila_test-5vln", "speaker-clip_greedy",
     #                   "speaker-clip_vote-10ila", "speaker-clip_vote-1ila", "speaker-gpt_pi-10ila-sample", "speaker-clip10_pi-10ila-sample"]
@@ -145,18 +147,87 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
             y_predict = np.array([x[1] for x in voted_instrs])
             avg_precision = average_precision_score(y_true, y_predict)
             avg_precision_list.append(avg_precision)
-            # if count_paths <= 2:
-            #     print("\nPath id: ", path_id)
-            #     print("Instr labels: ", instr_labels)
-            #     print("Instr predicted scores: ", voted_instrs)
-            #     print("y_true: ", y_true)
-            #     print("y_predict: ", y_predict)
-            #     print("avg precision: ", avg_precision)
 
     mean_avg_precision = sum(avg_precision_list) * 1.0 / count_paths
     print("\nAvg precision_list: \n", avg_precision_list)
     print("\nNumber of paths counted: ", count_paths)
     print("Mean average precision: ", mean_avg_precision)
+
+
+def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw"):
+    print("\n\nRank instructions by: ", score_metric)
+    # excluded_models = ["pi_vote-10ila_test-10vln", "speaker_gpt2_db7", "pi_vote-1ila_test-5vln", "speaker-clip_greedy",
+    #                   "speaker-clip_vote-10ila", "speaker-clip_vote-1ila", "speaker-gpt_pi-10ila-sample", "speaker-clip10_pi-10ila-sample"]
+
+    path2voted_instrs = defaultdict(list)
+    with open(input_voted_json_file) as f:
+        tmp_data = json.load(f)
+        for instr_id, item in tmp_data.items():
+            path_id = instr_id.split("_")[0]
+            path2voted_instrs[path_id].append((instr_id, item['overall_voting_result'][score_metric]))
+
+    path2positive_instrs = defaultdict(list)
+    path2negative_instrs = defaultdict(list)
+    with open(input_complete_json_file) as f:
+        tmp_data = json.load(f)
+        for instr_id, item in tmp_data.items():
+            path_id = instr_id.split("_")[0]
+            # if item['instr_label'] == "positive" or item['model'] == "speaker_ref_agent1_eval":
+            if item['instr_label'] == "positive":
+                path2positive_instrs[path_id].append(instr_id)
+            elif item['instr_label'] == "negative":
+                path2negative_instrs[path_id].append(instr_id)
+            else:
+                print("Unknown instr label: ", item['instr_label'])
+
+    # count_paths = 0
+    # avg_precision_list = []
+    sorted_path_ids = sorted(list(path2negative_instrs.keys()))
+    num_negatives_per_group = 4
+    count_paths = 0
+    count_groups = 0
+    num_pos_instrs, num_neg_instrs = 0, 0
+    avg_precision_list = []
+
+    for path_id in sorted_path_ids:
+        positive_instrs = path2positive_instrs[path_id]
+        negative_instrs = path2negative_instrs[path_id]
+        voted_instrs = list(path2voted_instrs[path_id])
+        count_paths += 1
+        num_pos_instrs += len(positive_instrs)
+        num_neg_instrs += len(negative_instrs)
+
+        random.shuffle(negative_instrs)
+        negative_groups = [negative_instrs[i:i + num_negatives_per_group] for i in range(0, len(negative_instrs), num_negatives_per_group)]
+        for positive_instr in positive_instrs:
+            for negative_group in negative_groups:
+                count_groups += 1
+                instr_labels = []
+                instr_preds = []
+                for instr_id, score in voted_instrs:
+                    if instr_id == positive_instr:
+                        instr_labels.append((instr_id, 1))
+                        instr_preds.append((instr_id, score))
+                    elif instr_id in negative_group:
+                        instr_labels.append((instr_id, 0))
+                        instr_preds.append((instr_id, score))
+                    #else:
+                    #    print("WARNING: instr id not in either positive or negative category: ", instr_id)
+                y_true = np.array([x[1] for x in instr_labels])
+                y_predict = np.array([x[1] for x in instr_preds])
+                avg_precision = average_precision_score(y_true, y_predict)
+                avg_precision_list.append(avg_precision)
+
+    print("\nNumber of paths counted: ", count_paths)
+    print("Number of positive instrs counted: ", num_pos_instrs)
+    print("Number of negative instrs counted: ", num_neg_instrs)
+
+    # mean_avg_precision = sum(avg_precision_list) * 1.0 / count_groups
+    mean_avg_precision = np.average(avg_precision_list)
+    ste_ap = 1.44 * sem(avg_precision_list)
+    # print("\nAvg precision_list: \n", avg_precision_list)
+    print("Number of groups counted: ", count_groups)
+    print("Mean average precision +- 1.44*ste = {:.1f}+-{:.1f}".format(100 * mean_avg_precision, 100 * ste_ap))
 
 
 if __name__ == '__main__':
