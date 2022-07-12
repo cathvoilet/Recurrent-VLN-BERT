@@ -239,3 +239,4 @@ if __name__ == '__main__':
     compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="sdtw")
     compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="spl")
     compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="score")
+    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="prob")

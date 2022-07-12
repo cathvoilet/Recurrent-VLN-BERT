@@ -32,6 +32,7 @@ class BaseAgent(object):
         self.results_path = results_path
         #random.seed(1)
         self.results = {}
+        self.probs = {}
         self.losses = [] # For learning agents
 
     def write_results(self):
@@ -40,7 +41,7 @@ class BaseAgent(object):
             json.dump(output, f)
 
     def get_results(self):
-        output = [{'instr_id': k, 'trajectory': v} for k, v in self.results.items()]
+        output = [{'instr_id': k, 'trajectory': v, 'prob': self.probs[k]} for k, v in self.results.items()]
         return output
 
     def rollout(self, **args):
@@ -55,6 +56,7 @@ class BaseAgent(object):
         self.env.reset_epoch(shuffle=(iters is not None))   # If iters is not none, shuffle the env batch
         self.losses = []
         self.results = {}
+        self.probs = {}
         # We rely on env showing the entire batch before repeating anything
         looped = False
         self.loss = 0
@@ -64,6 +66,7 @@ class BaseAgent(object):
                 for traj in self.rollout(**kwargs):
                     self.loss = 0
                     self.results[traj['instr_id']] = traj['path']
+                    self.probs[traj['instr_id']] = traj['prob']
         else:   # Do a full round
             while True:
                 for traj in self.rollout(**kwargs):
@@ -72,6 +75,7 @@ class BaseAgent(object):
                     else:
                         self.loss = 0
                         self.results[traj['instr_id']] = traj['path']
+                        self.probs[traj['instr_id']] = traj['prob']
                 if looped:
                     break
 
@@ -409,6 +413,19 @@ class Seq2SeqAgent(BaseAgent):
             # Early exit if all ended
             if ended.all():
                 break
+
+        aggregated_policy_log_probs = torch.stack(policy_log_probs)
+        sum_policy_log_probs = torch.sum(aggregated_policy_log_probs, 0)
+        sum_policy_log_probs = sum_policy_log_probs.flatten().tolist()
+        #print("Policy log probs list length: ", len(policy_log_probs))
+        #print("Policy log prob shape: ", policy_log_probs[0].size())
+        #print("Sum log prob: ", sum_policy_log_probs)
+        # probs = [{
+        #     'instr_id': ob['instr_id'],
+        #     'log_prob': sum_policy_log_probs[i],
+        # } for i, ob in enumerate(perm_obs)]
+        for i, ob in enumerate(perm_obs):
+            traj[i]['prob'] = np.exp(sum_policy_log_probs[i])
 
         if train_rl:
             # Last action in A2C

@@ -10,7 +10,7 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
     path2instrids = defaultdict(list)
 
     instrid2scores_list = defaultdict(lambda: defaultdict(list))
-    metrics = ['score', 'spl', 'ndtw', 'sdtw']
+    metrics = ['score', 'spl', 'ndtw', 'sdtw', 'prob']
 
     count_scores = 0
     for input_file in input_file_list:

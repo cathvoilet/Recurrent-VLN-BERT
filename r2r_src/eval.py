@@ -79,7 +79,7 @@ class Evaluation(object):
         return self.compute_ndtw(scan, pred_path, gold_path)
 
 
-    def _score_item(self, instr_id, path, sample_idx=None):
+    def _score_item(self, instr_id, path, prob=None, sample_idx=None):
         ''' Calculate error based on the final position in trajectory, and also
             the closest position (oracle stopping rule).
             The path contains [view_id, angle, vofv] '''
@@ -127,10 +127,13 @@ class Evaluation(object):
         if self.speaker_outputs:
             if sample_idx is None:
                 self.gt[instr_id]["pred_path"] = pred_path
-                self.gt[instr_id]["result"] = result
+                result_key = "result"
             else:
                 self.gt[instr_id]["pred_path_sample_" + str(sample_idx)] = pred_path
-                self.gt[instr_id]["result_sample_" + str(sample_idx)] = result
+                result_key = "result_sample_" + str(sample_idx)
+            self.gt[instr_id][result_key] = result
+            if prob is not None:
+                self.gt[instr_id][result_key]["prob"] = prob
 
 
     def score(self, output_file, sample_idx=None):
@@ -149,7 +152,7 @@ class Evaluation(object):
             # Check against expected ids
             if item['instr_id'] in instr_ids:
                 instr_ids.remove(item['instr_id'])
-                self._score_item(item['instr_id'], item['trajectory'], sample_idx=sample_idx)
+                self._score_item(item['instr_id'], item['trajectory'], prob=item['prob'], sample_idx=sample_idx)
 
         print('number of remaining instr ids: ', len(instr_ids))
         print(instr_ids)
