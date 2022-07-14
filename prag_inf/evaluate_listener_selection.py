@@ -154,8 +154,11 @@ def compute_listener_score3(input_voted_json_file, input_complete_json_file, sco
     print("Mean average precision: ", mean_avg_precision)
 
 
-def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw"):
+def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw", speaker_weight=0.0, speaker_model=None):
     print("\n\nRank instructions by: ", score_metric)
+    print("Listener weight: ", 1.0-speaker_weight)
+    print("Speaker weight: ", speaker_weight)
+    print("Speaker score model: ", speaker_model)
     # excluded_models = ["pi_vote-10ila_test-10vln", "speaker_gpt2_db7", "pi_vote-1ila_test-5vln", "speaker-clip_greedy",
     #                   "speaker-clip_vote-10ila", "speaker-clip_vote-1ila", "speaker-gpt_pi-10ila-sample", "speaker-clip10_pi-10ila-sample"]
 
@@ -168,6 +171,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
 
     path2positive_instrs = defaultdict(list)
     path2negative_instrs = defaultdict(list)
+    instr2speaker_score = {}
     with open(input_complete_json_file) as f:
         tmp_data = json.load(f)
         for instr_id, item in tmp_data.items():
@@ -179,6 +183,9 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                 path2negative_instrs[path_id].append(instr_id)
             else:
                 print("Unknown instr label: ", item['instr_label'])
+
+            if speaker_weight:
+                instr2speaker_score[instr_id] = item["speaker_result"][speaker_model]
 
     # count_paths = 0
     # avg_precision_list = []
@@ -205,6 +212,9 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                 instr_labels = []
                 instr_preds = []
                 for instr_id, score in voted_instrs:
+                    if speaker_weight:
+                        speaker_score = instr2speaker_score[instr_id]
+                        score = pow(score, 1-speaker_weight) * pow(speaker_score, speaker_weight)
                     if instr_id == positive_instr:
                         instr_labels.append((instr_id, 1))
                         instr_preds.append((instr_id, score))
@@ -218,7 +228,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                 avg_precision = average_precision_score(y_true, y_predict)
                 avg_precision_list.append(avg_precision)
 
-    print("\nNumber of paths counted: ", count_paths)
+    print("Number of paths counted: ", count_paths)
     print("Number of positive instrs counted: ", num_pos_instrs)
     print("Number of negative instrs counted: ", num_neg_instrs)
 
@@ -228,6 +238,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     # print("\nAvg precision_list: \n", avg_precision_list)
     print("Number of groups counted: ", count_groups)
     print("Mean average precision +- 1.44*ste = {:.1f}+-{:.1f}".format(100 * mean_avg_precision, 100 * ste_ap))
+    return mean_avg_precision
 
 
 if __name__ == '__main__':
@@ -235,8 +246,14 @@ if __name__ == '__main__':
     parser.add_argument('--input_voted_json_file', help='input voted file')
     parser.add_argument('--input_complete_json_file', help='input original file')
     args = parser.parse_args()
-    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="ndtw")
-    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="sdtw")
-    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="spl")
-    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="score")
-    compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric="prob")
+
+    metrics = ['ndtw', 'sdtw', 'spl', 'score', 'prob']
+    speaker_weights = [0.1 * x for x in range(0, 11)]
+
+    best_score = 0.0
+    for speaker_weight in speaker_weights:
+        for metric in metrics:
+            score = compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric=metric, speaker_weight=speaker_weight, speaker_model="original_gpt")
+            if score > best_score:
+                print("New best score: ", score)
+                best_score = score
