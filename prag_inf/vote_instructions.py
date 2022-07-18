@@ -5,12 +5,15 @@ import logging
 from collections import defaultdict
 
 
-def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs, key="ndtw", metric="avg"):
+def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs, key="ndtw", metric="avg", no_prob=0):
     instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
 
     instrid2scores_list = defaultdict(lambda: defaultdict(list))
-    metrics = ['score', 'spl', 'ndtw', 'sdtw', 'prob']
+    if no_prob:
+        metrics = ['score', 'spl', 'ndtw', 'sdtw']
+    else:
+        metrics = ['score', 'spl', 'ndtw', 'sdtw', 'prob']
 
     count_scores = 0
     for input_file in input_file_list:
@@ -160,6 +163,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_duplicate_instrs', type=int, default=0)
     parser.add_argument('--output_all_instrs', type=int, default=0)
     parser.add_argument('--metric', type=str, default="avg")
+    parser.add_argument('--no_prob', type=int, default=0)
     parser.add_argument('-input_exps', '--list', nargs='+', help='input exps list', required=True)
     parser.add_argument('--result_sample', type=int, default=0)  # 0, 10
     args = parser.parse_args()
@@ -184,7 +188,7 @@ if __name__ == '__main__':
     else:
         output_file = args.output_exp + "voted_best_" + args.metric + "_val_seen_eval.json"
     print("Output file: ", output_file)
-    vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, args.output_all_instrs, metric=args.metric, key=score_metric)
+    vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, args.output_all_instrs, metric=args.metric, key=score_metric, no_prob=args.no_prob)
     #vote_instructions(input_file_list, output_file, args.result_sample, metric=metric, key="score")
 
     # input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]

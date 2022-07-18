@@ -167,6 +167,9 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
         tmp_data = json.load(f)
         for instr_id, item in tmp_data.items():
             path_id = instr_id.split("_")[0]
+            if score_metric not in item['overall_voting_result']:
+                print("Exiting: metric {} not in voting file!".format(score_metric))
+                return False
             path2voted_instrs[path_id].append((instr_id, item['overall_voting_result'][score_metric]))
 
     path2positive_instrs = defaultdict(list)
@@ -214,7 +217,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                 for instr_id, score in voted_instrs:
                     if speaker_weight:
                         speaker_score = instr2speaker_score[instr_id]
-                        score = pow(score, 1-speaker_weight) * pow(speaker_score, speaker_weight)
+                        score = pow(score, 1.0-speaker_weight) * pow(speaker_score, speaker_weight)
                     if instr_id == positive_instr:
                         instr_labels.append((instr_id, 1))
                         instr_preds.append((instr_id, score))
@@ -249,11 +252,12 @@ if __name__ == '__main__':
 
     metrics = ['ndtw', 'sdtw', 'spl', 'score', 'prob']
     speaker_weights = [0.1 * x for x in range(0, 11)]
+    # speaker_weights = [0.0]
 
     best_score = 0.0
     for speaker_weight in speaker_weights:
         for metric in metrics:
-            score = compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric=metric, speaker_weight=speaker_weight, speaker_model="original_gpt")
+            score = compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric=metric, speaker_weight=speaker_weight, speaker_model="clip")
             if score > best_score:
                 print("New best score: ", score)
                 best_score = score
