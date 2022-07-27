@@ -169,7 +169,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
             path_id = instr_id.split("_")[0]
             if score_metric not in item['overall_voting_result']:
                 print("Exiting: metric {} not in voting file!".format(score_metric))
-                return False
+                return False, False
             path2voted_instrs[path_id].append((instr_id, item['overall_voting_result'][score_metric]))
 
     path2positive_instrs = defaultdict(list)
@@ -218,6 +218,10 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                     if speaker_weight:
                         speaker_score = instr2speaker_score[instr_id]
                         score = pow(score, 1.0-speaker_weight) * pow(speaker_score, speaker_weight)
+                        # if score == 0.0 or speaker_score == 0.0:
+                        #     score = -1.7976931348623157e+308
+                        # else:
+                        #     score = (1.0-speaker_weight) * np.log(score) + speaker_weight * np.log(speaker_score)
                     if instr_id == positive_instr:
                         instr_labels.append((instr_id, 1))
                         instr_preds.append((instr_id, score))
@@ -240,8 +244,9 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     ste_ap = 1.44 * sem(avg_precision_list)
     # print("\nAvg precision_list: \n", avg_precision_list)
     print("Number of groups counted: ", count_groups)
-    print("Mean average precision +- 1.44*ste = {:.1f}+-{:.1f}".format(100 * mean_avg_precision, 100 * ste_ap))
-    return mean_avg_precision
+    output_str = "Mean average precision +- 1.44*ste = {:.1f}+-{:.1f}".format(100 * mean_avg_precision, 100 * ste_ap)
+    print(output_str)
+    return mean_avg_precision, output_str
 
 
 if __name__ == '__main__':
@@ -254,10 +259,16 @@ if __name__ == '__main__':
     speaker_weights = [0.1 * x for x in range(0, 11)]
     # speaker_weights = [0.0]
 
-    best_score = 0.0
+    metric2best_score = defaultdict(float)
+    metric2best_string = defaultdict(str)
     for speaker_weight in speaker_weights:
         for metric in metrics:
-            score = compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric=metric, speaker_weight=speaker_weight, speaker_model="clip")
-            if score > best_score:
-                print("New best score: ", score)
-                best_score = score
+            score, output_str = compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric=metric, speaker_weight=speaker_weight, speaker_model="finetuned_gpt")
+            if score > metric2best_score[metric]:
+                print("New best score for metric {}: {}".format(metric, score))
+                metric2best_score[metric] = score
+                metric2best_string[metric] = output_str + " (lda={})".format(1.0-speaker_weight)
+
+    for metric in metrics:
+        print("\nFinal best score for metric: ", metric)
+        print(metric2best_string[metric])
