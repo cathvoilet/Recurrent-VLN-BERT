@@ -2,10 +2,23 @@ import argparse
 import json
 import numpy as np
 import logging
+import sys
 from collections import defaultdict
 
 
-def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs, key="ndtw", metric="avg", no_prob=0):
+def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs,
+                      key="ndtw", metric="avg", no_prob=0, speaker_weight=0.0, speaker_file=None, speaker_model=None):
+    instr2speaker_score = {}
+    print("Speaker weight= ", speaker_weight)
+    if speaker_weight > 0.0:
+        if not speaker_file:
+            sys.exit("Error: Speaker weight={}, but there is no speaker file".format(speaker_weight))
+        else:
+            with open(speaker_file) as f:
+                tmp_data = json.load(f)
+                for instr_id, item in tmp_data.items():
+                    instr2speaker_score[instr_id] = item["speaker_result"][speaker_model]
+
     instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
 
@@ -51,7 +64,8 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
     best_instructions = []
     print("Agent scores metric: ", metric)
     if metric == "avg":
-        best_instructions = best_avg(instrid2scores, path2instrids, output_duplicate_instrs)
+        best_instructions = best_avg(instrid2scores, path2instrids, output_duplicate_instrs,
+                                     speaker_weight=speaker_weight, instr2speaker_score=instr2speaker_score)
     # elif metric == "median":
     #     best_instructions = best_median(instrid2scores, path2instrids)
     # elif metric == "mean-std":
@@ -95,13 +109,16 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
 
     with open(output_file, 'w') as f:
         json.dump(all_preds, f, indent=2)
-    logging.info('Saved eval info to %s' % output_file)
+    print('Saved eval info to %s' % output_file)
 
 
-def best_avg(instrid2scores, path2instrids, output_duplicate_instrs):
+def best_avg(instrid2scores, path2instrids, output_duplicate_instrs, speaker_weight=0.0, instr2speaker_score=None):
     best_instructions = []
     for path_id, instr_ids in path2instrids.items():
-        instr_scores = np.array([sum(instrid2scores[instr_id]) for instr_id in instr_ids])
+        instr_scores = np.array([np.average(instrid2scores[instr_id]) for instr_id in instr_ids])
+        if speaker_weight:
+            instr_speaker_scores = [instr2speaker_score[instr_id] for instr_id in instr_ids]
+            instr_scores = np.array([pow(instr_scores[i], 1.0-speaker_weight) * pow(instr_speaker_scores[i], speaker_weight) for i in range(len(instr_speaker_scores))])
         max_score = max(instr_scores)
         if not output_duplicate_instrs:
             max_instr_idx = np.argmax(instr_scores)
@@ -166,6 +183,9 @@ if __name__ == '__main__':
     parser.add_argument('--no_prob', type=int, default=0)
     parser.add_argument('-input_exps', '--list', nargs='+', help='input exps list', required=True)
     parser.add_argument('--result_sample', type=int, default=0)  # 0, 10
+    parser.add_argument('--speaker_weight', type=float, default=0.0)
+    parser.add_argument('--speaker_file', type=str, default=None)
+    parser.add_argument('--speaker_model', type=str, default=None)
     args = parser.parse_args()
 
     # metric = "avg"
@@ -188,7 +208,9 @@ if __name__ == '__main__':
     else:
         output_file = args.output_exp + "voted_best_" + args.metric + "_val_seen_eval.json"
     print("Output file: ", output_file)
-    vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, args.output_all_instrs, metric=args.metric, key=score_metric, no_prob=args.no_prob)
+    vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, args.output_all_instrs,
+                      metric=args.metric, key=score_metric, no_prob=args.no_prob,
+                      speaker_weight=args.speaker_weight, speaker_file=args.speaker_file, speaker_model=args.speaker_model)
     #vote_instructions(input_file_list, output_file, args.result_sample, metric=metric, key="score")
 
     # input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]
