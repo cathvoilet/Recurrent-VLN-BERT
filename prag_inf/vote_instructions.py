@@ -180,6 +180,7 @@ if __name__ == '__main__':
     parser.add_argument('--output_duplicate_instrs', type=int, default=0)
     parser.add_argument('--output_all_instrs', type=int, default=0)
     parser.add_argument('--metric', type=str, default="avg")
+    parser.add_argument('--listener_model', type=str, default="ndtw")
     parser.add_argument('--no_prob', type=int, default=0)
     parser.add_argument('-input_exps', '--list', nargs='+', help='input exps list', required=True)
     parser.add_argument('--result_sample', type=int, default=0)  # 0, 10
@@ -189,7 +190,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # metric = "avg"
-    score_metric = "sdtw"
+    score_metric = args.listener_model
     print("Choose by best ", score_metric)
     print("Allow duplicate instrs: ", args.output_duplicate_instrs)
     print("Outputing all instrs: ", args.output_all_instrs)

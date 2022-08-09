@@ -151,7 +151,38 @@ class R2RBatch():
                 new_scans = [scans[i] for i in random_indices]
                 self.data = new_data
                 scans = new_scans
-                print("Sampled training size: ", len(self.data))
+                print("Randomly sampled training size: ", len(self.data))
+
+            elif args.train_samples_exclude_fold is not None:
+                num_folds = 10
+                len_data = len(self.data)
+                print("Original training size: ", len_data)
+                samples_folds = np.array_split(self.data, num_folds)
+                self.data = []
+                scans = []
+                for i, samples_fold in enumerate(samples_folds):
+                    if i != args.train_samples_exclude_fold:
+                        self.data += list(samples_fold)
+                        scans += [item['scan'] for item in samples_fold]
+
+                print("After excluding samples fold {}, the training size is: {}".format(args.train_samples_exclude_fold, len(self.data)))
+
+            elif args.train_scans_exclude_fold is not None:
+                num_folds = 10
+                len_data = len(self.data)
+                print("Original training size: ", len_data)
+                unique_scans = sorted(list(set(scans)))
+                scans_folds = np.array_split(unique_scans, num_folds)
+                excluded_scans = list(scans_folds[args.train_scans_exclude_fold])
+                new_data, new_scans = [], []
+                for i, item in enumerate(self.data):
+                    if item['scan'] not in excluded_scans:
+                        new_data.append(item)
+                        new_scans.append(item['scan'])
+
+                self.data = new_data
+                scans = new_scans
+                print("After excluding scans fold {}, the training size is: {}".format(args.train_scans_exclude_fold, len(self.data)))
 
         if name is None:
             self.name = splits[0] if len(splits) > 0 else "FAKE"
@@ -160,7 +191,7 @@ class R2RBatch():
 
         self.scans = set(scans)
         self.splits = splits
-        self.seed = seed
+        self.seed = args.seed
         random.seed(self.seed)
         random.shuffle(self.data)
 

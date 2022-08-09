@@ -54,6 +54,8 @@ class Param:
         self.parser.add_argument('--epsilon', type=float, default=0.1)
         self.parser.add_argument('--seed', type=int, default=1)
         self.parser.add_argument('--train_sampling', type=float, default=1.0)
+        self.parser.add_argument('--train_scans_exclude_fold', type=int, default=None)  # 0-9
+        self.parser.add_argument('--train_samples_exclude_fold', type=int, default=None)  # 0-9
         self.parser.add_argument('--no_rl', type=int, default=0)
         self.parser.add_argument('--decode_feedback', type=str, default='argmax')  # 'sample', 'argmax'
 
