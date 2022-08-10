@@ -7,7 +7,7 @@ from scipy.stats import sem
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, confusion_matrix, average_precision_score
 
 
-def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw", speaker_weight=0.0, speaker_model=None):
+def compute_listener_score1(input_voted_json_file, input_complete_json_file, score_metric="ndtw", speaker_weight=0.0, speaker_model=None):
     print("\n\nRank instructions by: ", score_metric)
     print("Listener weight: ", 1.0-speaker_weight)
     print("Speaker weight: ", speaker_weight)
@@ -73,14 +73,136 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     print("Number of paths counted: ", len(list(unique_paths)))
     print("Number of positive instrs counted: ", num_pos_instrs)
     print("Number of negative instrs counted: ", num_neg_instrs)
+    print("Number of groups counted: ", count_groups)
+
+    # Bootstrap confidence intervals
+    n_iterations = 100
+    alpha = 15.0  # 85% CI
+    bootstrap_maps = []
+    for i in range(n_iterations):
+        bootstrap_aps = np.random.choice(avg_precision_list, len(avg_precision_list), replace=True)
+        map = np.average(bootstrap_aps)
+        bootstrap_maps.append(map)
 
     mean_avg_precision = np.average(avg_precision_list)
-    ste_ap = 1.44 * sem(avg_precision_list)
+    # ste_ap = 1.44 * sem(avg_precision_list)
     # print("\nAvg precision_list: \n", avg_precision_list)
-    print("Number of groups counted: ", count_groups)
-    output_str = "Mean average precision +- 1.44*ste = {:.1f}+-{:.1f}".format(100 * mean_avg_precision, 100 * ste_ap)
+    lower_p = alpha / 2.0
+    lower = max(0.0, np.percentile(bootstrap_maps, lower_p))
+    upper_p = (100 - alpha) + (alpha / 2.0)
+    upper = min(1.0, np.percentile(bootstrap_maps, upper_p))
+
+    output_str = "Mean average precision [85% CI lower bound, upper bound] = {:.1f} [{:.1f}, {:.1f}]".format(100 * mean_avg_precision, 100 * lower, 100 * upper)
     print(output_str)
     return mean_avg_precision, output_str
+
+
+def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw", speaker_weight=0.0, speaker_model=None):
+    print("\n\nRank instructions by: ", score_metric)
+    print("Listener weight: ", 1.0-speaker_weight)
+    print("Speaker weight: ", speaker_weight)
+    print("Speaker score model: ", speaker_model)
+
+    path2voted_instrs = defaultdict(list)
+    with open(input_voted_json_file) as f:
+        tmp_data = json.load(f)
+        for instr_id, item in tmp_data.items():
+            path_id = instr_id.split("_")[0]
+            if score_metric not in item['overall_voting_result']:
+                print("Exiting: metric {} not in voting file!".format(score_metric))
+                return False, False
+            path2voted_instrs[path_id].append((instr_id, item['overall_voting_result'][score_metric]))
+
+    path2positive_instrs = defaultdict(list)
+    path2negative_instrs = defaultdict(list)
+    instr2speaker_score = {}
+    with open(input_complete_json_file) as f:
+        tmp_data = json.load(f)
+        for instr_id, item in tmp_data.items():
+            path_id = instr_id.split("_")[0]
+            # if item['instr_label'] == "positive" or item['model'] == "speaker_ref_agent1_eval":
+            if item['instr_label'] == "positive":
+                path2positive_instrs[path_id].append(instr_id)
+            elif item['instr_label'] == "negative":
+                path2negative_instrs[path_id].append(instr_id)
+            else:
+                print("Unknown instr label: ", item['instr_label'])
+
+            if speaker_weight:
+                instr2speaker_score[instr_id] = item["speaker_result"][speaker_model]
+
+    sorted_path_ids = sorted(list(path2negative_instrs.keys()))
+    count_groups = 0
+    n_iterations = 100
+    map_values = []
+
+    for j in range(n_iterations):
+        count_paths = 0
+        num_pos_instrs, num_neg_instrs = 0, 0
+        avg_precision_list = []
+        for path_id in sorted_path_ids:
+            positive_instrs = path2positive_instrs[path_id]
+            negative_instrs = path2negative_instrs[path_id]
+            voted_instrs = list(path2voted_instrs[path_id])
+            count_paths += 1
+            num_pos_instrs += len(positive_instrs)
+            num_neg_instrs += len(negative_instrs)
+
+            path_dataset = generate_path_dataset(positive_instrs, negative_instrs)
+            for positive_instr, negative_group in path_dataset:
+                count_groups += 1
+                instr_labels = []
+                instr_preds = []
+                for instr_id, score in voted_instrs:
+                    if speaker_weight:
+                        speaker_score = instr2speaker_score[instr_id]
+                        score = pow(score, 1.0-speaker_weight) * pow(speaker_score, speaker_weight)
+                    if instr_id == positive_instr:
+                        instr_labels.append((instr_id, 1))
+                        instr_preds.append((instr_id, score))
+                    elif instr_id in negative_group:
+                        instr_labels.append((instr_id, 0))
+                        instr_preds.append((instr_id, score))
+                    #else:
+                    #    print("WARNING: instr id not in either positive or negative category: ", instr_id)
+                y_true = np.array([x[1] for x in instr_labels])
+                y_predict = np.array([x[1] for x in instr_preds])
+                avg_precision = average_precision_score(y_true, y_predict)
+                avg_precision_list.append(avg_precision)
+
+        mean_avg_precision = np.average(avg_precision_list)
+        map_values.append(mean_avg_precision)
+
+    print("Number of paths counted: ", count_paths)
+    print("Number of positive instrs counted: ", num_pos_instrs)
+    print("Number of negative instrs counted: ", num_neg_instrs)
+    print("Number of groups counted for 100 iterations: ", count_groups)
+
+    # confidence intervals
+    alpha = 15.0  # 85% CI
+    avg_map = np.average(map_values)
+    lower_p = alpha / 2.0
+    lower = max(0.0, np.percentile(map_values, lower_p))
+    upper_p = (100 - alpha) + (alpha / 2.0)
+    upper = min(1.0, np.percentile(map_values, upper_p))
+
+    output_str = "Mean average precision [85% CI lower bound, upper bound] = {:.1f} [{:.1f}, {:.1f}]".format(100 * avg_map, 100 * lower, 100 * upper)
+    print(output_str)
+
+    return avg_map, output_str
+
+
+def generate_path_dataset(positive_instructions, negative_instructions):
+    num_negatives_per_group = 4
+    num_test_cases = 5
+    path_dataset = []
+
+    for i in range(num_test_cases):
+        pos_instr = np.random.choice(positive_instructions, 1, replace=False)
+        neg_instrs = np.random.choice(negative_instructions, num_negatives_per_group, replace=True)
+        path_dataset.append((pos_instr, neg_instrs))
+
+    return path_dataset
 
 
 if __name__ == '__main__':
@@ -104,7 +226,7 @@ if __name__ == '__main__':
                 if score > metric2best_score[metric] and speaker_weight not in [0.0, 1.0]:
                     print("New best score for metric {}: {}".format(metric, score))
                     metric2best_score[metric] = score
-                    metric2best_string[metric] = output_str + " (lda={})".format(1.0-speaker_weight)
+                    metric2best_string[metric] = output_str + " (lda={})".format(round(1.0-speaker_weight, 1))
 
         for metric in metrics:
             print("\nSpeaker model {} final best score for metric {}: ".format(speaker_model, metric))
