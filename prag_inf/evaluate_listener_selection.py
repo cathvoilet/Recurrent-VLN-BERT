@@ -99,8 +99,8 @@ def compute_listener_score1(input_voted_json_file, input_complete_json_file, sco
 
 def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw", speaker_weight=0.0, speaker_model=None):
     print("\n\nRank instructions by: ", score_metric)
-    print("Listener weight: ", 1.0-speaker_weight)
-    print("Speaker weight: ", speaker_weight)
+    print("Listener weight: ", round(1.0-speaker_weight, 1))
+    print("Speaker weight: ", round(speaker_weight, 1))
     print("Speaker score model: ", speaker_model)
 
     path2voted_instrs = defaultdict(list)
@@ -135,6 +135,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     count_groups = 0
     n_iterations = 100
     map_values = []
+    scores_variance = []
 
     for j in range(n_iterations):
         count_paths = 0
@@ -149,6 +150,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
             num_neg_instrs += len(negative_instrs)
 
             path_dataset = generate_path_dataset(positive_instrs, negative_instrs)
+            path_scores = []
             for positive_instr, negative_group in path_dataset:
                 count_groups += 1
                 instr_labels = []
@@ -160,15 +162,19 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                     if instr_id == positive_instr:
                         instr_labels.append((instr_id, 1))
                         instr_preds.append((instr_id, score))
+                        path_scores.append(score)
                     elif instr_id in negative_group:
                         instr_labels.append((instr_id, 0))
                         instr_preds.append((instr_id, score))
+                        path_scores.append(score)
                     #else:
                     #    print("WARNING: instr id not in either positive or negative category: ", instr_id)
                 y_true = np.array([x[1] for x in instr_labels])
                 y_predict = np.array([x[1] for x in instr_preds])
                 avg_precision = average_precision_score(y_true, y_predict)
                 avg_precision_list.append(avg_precision)
+
+            scores_variance.append(np.var(path_scores))
 
         mean_avg_precision = np.average(avg_precision_list)
         map_values.append(mean_avg_precision)
@@ -178,6 +184,8 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     print("Number of negative instrs counted: ", num_neg_instrs)
     print("Number of groups counted for 100 iterations: ", count_groups)
 
+    avg_scores_variance = np.average(scores_variance)
+
     # confidence intervals
     alpha = 15.0  # 85% CI
     avg_map = np.average(map_values)
@@ -186,7 +194,8 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     upper_p = (100 - alpha) + (alpha / 2.0)
     upper = min(1.0, np.percentile(map_values, upper_p))
 
-    output_str = "Mean average precision [85% CI lower bound, upper bound] = {:.1f} [{:.1f}, {:.1f}]".format(100 * avg_map, 100 * lower, 100 * upper)
+    output_str = "Avg variance for samples in a group: {}\n".format(round(avg_scores_variance, 3))
+    output_str += "Mean average precision [85% CI lower bound, upper bound] = {:.1f} [{:.1f}, {:.1f}]".format(100 * avg_map, 100 * lower, 100 * upper)
     print(output_str)
 
     return avg_map, output_str
