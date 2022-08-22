@@ -4,11 +4,14 @@ import numpy as np
 import logging
 import sys
 from collections import defaultdict
+from scipy.special import softmax
 
 
 def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs,
-                      key="ndtw", metric="avg", no_prob=0, speaker_weight=0.0, speaker_file=None, speaker_model=None):
+                      key="ndtw", metric="avg", no_prob=0, speaker_weight=0.0, speaker_file=None, normalize_speaker=0,
+                      speaker_result_key="speaker_result", speaker_model=None):
     instr2speaker_score = {}
+    path2speaker_scores = defaultdict(list)
     print("Speaker weight= ", speaker_weight)
     if speaker_weight > 0.0:
         if not speaker_file:
@@ -17,7 +20,19 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
             with open(speaker_file) as f:
                 tmp_data = json.load(f)
                 for instr_id, item in tmp_data.items():
-                    instr2speaker_score[instr_id] = item["speaker_result"][speaker_model]
+                    instr2speaker_score[instr_id] = item[speaker_result_key][speaker_model]
+                    path_id = instr_id.split("_")[0]
+                    path2speaker_scores[path_id].append((instr_id, item[speaker_result_key][speaker_model]))
+
+    if normalize_speaker:
+        for path_id, instr_speaker_scores in path2speaker_scores.items():
+            speaker_scores = np.array([x[1] for x in instr_speaker_scores])
+            # normalized_scores = (listener_scores - np.min(listener_scores)) / (np.max(listener_scores) - np.min(listener_scores))
+            normalized_scores = softmax(speaker_scores)
+            for i in range(len(instr_speaker_scores)):
+                instr_id, _ = instr_speaker_scores[i]
+                normalized_score = normalized_scores[i]
+                instr2speaker_score[instr_id] = normalized_score
 
     instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
@@ -185,23 +200,17 @@ if __name__ == '__main__':
     parser.add_argument('-input_exps', '--list', nargs='+', help='input exps list', required=True)
     parser.add_argument('--result_sample', type=int, default=0)  # 0, 10
     parser.add_argument('--speaker_weight', type=float, default=0.0)
+    parser.add_argument('--normalize_speaker', default=0, help='speaker normalize')
+    parser.add_argument('--speaker_result_key', default="speaker_result", help='speaker key')
     parser.add_argument('--speaker_file', type=str, default=None)
     parser.add_argument('--speaker_model', type=str, default=None)
     args = parser.parse_args()
 
-    # metric = "avg"
     score_metric = args.listener_model
     print("Choose by best ", score_metric)
     print("Allow duplicate instrs: ", args.output_duplicate_instrs)
     print("Outputing all instrs: ", args.output_all_instrs)
 
-    # input_file_list = ["snap/"+agent+"_pi_vote_speaker-clip/val_seen_sampled.json" for agent in args.list]
-    #input_file_list = ["snap/" + agent + "_pi-vote-sample_speaker-gpt/speaker11_val_seen_eval.json" for agent in args.list]
-    #input_file_list = ["snap/" + agent + "_pi_vote_speaker-perturb_ref/swap_entity_direction_val_unseen.json" for agent in args.list]
-    #input_file_list = ["snap/" + agent + "_pi_vote_speaker-9models/9models_50routes_val_seen.json" for agent in args.list]
-    #input_file_list = ["snap/" + agent + "_pi-vote-sample_speaker-clip-10/val_seen_sampled.json" for agent in args.list]
-    #input_file_list = ["snap/" + agent + "_pi-vote_speaker-clip-10_test-sample/voted_best_avg_val_seen_eval.json" for agent in args.list]
-    # input_file_list = ["snap/" + agent + "_pi_vote-sample_speaker-gpt_best10ila_beam/speaker-gpt_beam_vote_10ila_combined_val_seen.json" for agent in args.list]
     input_file_list = ["snap/" + agent + "_" + args.input_path for agent in args.list]
     print("Input file list: ", input_file_list)
     if args.output_all_instrs:
@@ -211,11 +220,5 @@ if __name__ == '__main__':
     print("Output file: ", output_file)
     vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, args.output_all_instrs,
                       metric=args.metric, key=score_metric, no_prob=args.no_prob,
-                      speaker_weight=args.speaker_weight, speaker_file=args.speaker_file, speaker_model=args.speaker_model)
-    #vote_instructions(input_file_list, output_file, args.result_sample, metric=metric, key="score")
-
-    # input_file_list = ["snap/"+agent+"_pi_vote/speaker11_val_unseen_eval.json" for agent in args.list]
-    # print("Input file list: ", input_file_list)
-    # output_file = args.output_exp + "voted_best_" + metric + "_val_unseen_eval.json"
-    # print("Output file: ", output_file)
-    # vote_instructions(input_file_list, output_file, metric=metric)
+                      speaker_weight=args.speaker_weight, speaker_file=args.speaker_file, speaker_model=args.speaker_model,
+                      normalize_speaker=args.normalize_speaker, speaker_result_key=args.speaker_result_key)
