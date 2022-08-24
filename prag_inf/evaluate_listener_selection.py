@@ -116,6 +116,7 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     path2positive_instrs = defaultdict(list)
     path2negative_instrs = defaultdict(list)
     instr2speaker_score = {}
+    instr2speaker_model = {}
     with open(input_complete_json_file) as f:
         tmp_data = json.load(f)
         for instr_id, item in tmp_data.items():
@@ -131,11 +132,19 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
             if speaker_weight:
                 instr2speaker_score[instr_id] = item["speaker_result"][speaker_model]
 
+            if item['model'] == "speaker_ref_agent1_eval":
+                instr2speaker_model[instr_id] = "ref"
+            elif item['model'] in ["pi_vote-10ila_test-10vln", "speaker_gpt2_db7", "pi_vote-1ila_test-5vln", "speaker-gpt_pi-10ila-sample"]:
+                instr2speaker_model[instr_id] = "gpt"
+            elif item['model'] in ["speaker-clip_greedy", "speaker-clip_vote-10ila", "speaker-clip_vote-1ila", "speaker-clip10_pi-10ila-sample"]:
+                instr2speaker_model[instr_id] = "clip"
+
     sorted_path_ids = sorted(list(path2negative_instrs.keys()))
     count_groups = 0
     n_iterations = 100
     map_values = []
     scores_variance = []
+    count_top_instruction_model = defaultdict(int)
 
     for j in range(n_iterations):
         count_paths = 0
@@ -174,6 +183,10 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                 avg_precision = average_precision_score(y_true, y_predict)
                 avg_precision_list.append(avg_precision)
 
+                top_instr_index = np.argmax(y_predict)
+                top_instr = instr_preds[top_instr_index][0]
+                count_top_instruction_model[instr2speaker_model[top_instr]] += 1
+
             scores_variance.append(np.var(path_scores))
 
         mean_avg_precision = np.average(avg_precision_list)
@@ -198,6 +211,12 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     output_str += "Mean average precision [85% CI lower bound, upper bound] = {:.1f} [{:.1f}, {:.1f}]".format(100 * avg_map, 100 * lower, 100 * upper)
     print(output_str)
 
+    total_test_cases = sum(count_top_instruction_model.values())
+    print("Total test cases for {} iterations: {}".format(total_test_cases, n_iterations))
+    for instruction_model, count_top in count_top_instruction_model.items():
+        percentage = float(count_top) / total_test_cases
+        print("Instruction model {} ranked top percentage: {}".format(instruction_model, percentage))
+
     return avg_map, output_str
 
 
@@ -221,8 +240,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     metrics = ['ndtw', 'sdtw', 'spl', 'score', 'prob']
-    speaker_weights = [0.1 * x for x in range(0, 11)]
-    # speaker_weights = [0.0]
+    # speaker_weights = [0.1 * x for x in range(0, 11)]
+    speaker_weights = [1.0]
     speaker_models = ["clip", "finetuned_gpt"]
 
     for speaker_model in speaker_models:
