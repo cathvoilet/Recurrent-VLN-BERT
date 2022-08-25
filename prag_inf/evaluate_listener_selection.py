@@ -97,7 +97,7 @@ def compute_listener_score1(input_voted_json_file, input_complete_json_file, sco
     return mean_avg_precision, output_str
 
 
-def compute_listener_score(input_voted_json_file, input_complete_json_file, score_metric="ndtw", speaker_weight=0.0, speaker_model=None):
+def compute_listener_score(input_voted_json_file, input_complete_json_files, score_metric="ndtw", speaker_weight=0.0, speaker_model=None):
     print("\n\nRank instructions by: ", score_metric)
     print("Listener weight: ", round(1.0-speaker_weight, 1))
     print("Speaker weight: ", round(speaker_weight, 1))
@@ -113,38 +113,40 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                 return False, False
             path2voted_instrs[path_id].append((instr_id, item['overall_voting_result'][score_metric]))
 
-    path2positive_instrs = defaultdict(list)
-    path2negative_instrs = defaultdict(list)
-    instr2speaker_score = {}
+    path2positive_instrs = defaultdict(set)
+    path2negative_instrs = defaultdict(set)
+    instr2speaker_scores = defaultdict(list)
     instr2speaker_model = {}
-    with open(input_complete_json_file) as f:
-        tmp_data = json.load(f)
-        for instr_id, item in tmp_data.items():
-            path_id = instr_id.split("_")[0]
-            # if item['instr_label'] == "positive" or item['model'] == "speaker_ref_agent1_eval":
-            if item['instr_label'] == "positive":
-                path2positive_instrs[path_id].append(instr_id)
-            elif item['instr_label'] == "negative":
-                path2negative_instrs[path_id].append(instr_id)
-            else:
-                print("Unknown instr label: ", item['instr_label'])
+    for input_complete_json_file in input_complete_json_files:
+        with open(input_complete_json_file) as f:
+            tmp_data = json.load(f)
+            for instr_id, item in tmp_data.items():
+                path_id = instr_id.split("_")[0]
+                # if item['instr_label'] == "positive" or item['model'] == "speaker_ref_agent1_eval":
+                if item['instr_label'] == "positive":
+                    path2positive_instrs[path_id].add(instr_id)
+                elif item['instr_label'] == "negative":
+                    path2negative_instrs[path_id].add(instr_id)
+                else:
+                    print("Unknown instr label: ", item['instr_label'])
 
-            if speaker_weight:
-                instr2speaker_score[instr_id] = item["speaker_result"][speaker_model]
+                if speaker_weight:
+                    instr2speaker_scores[instr_id].append(item["speaker_result"][speaker_model])
 
-            if item['model'] == "speaker_ref_agent1_eval":
-                instr2speaker_model[instr_id] = "ref"
-            elif item['model'] in ["pi_vote-10ila_test-10vln", "speaker_gpt2_db7", "pi_vote-1ila_test-5vln", "speaker-gpt_pi-10ila-sample"]:
-                instr2speaker_model[instr_id] = "gpt"
-            elif item['model'] in ["speaker-clip_greedy", "speaker-clip_vote-10ila", "speaker-clip_vote-1ila", "speaker-clip10_pi-10ila-sample"]:
-                instr2speaker_model[instr_id] = "clip"
+                if item['model'] == "speaker_ref_agent1_eval":
+                    instr2speaker_model[instr_id] = "ref"
+                elif item['model'] in ["pi_vote-10ila_test-10vln", "speaker_gpt2_db7", "pi_vote-1ila_test-5vln", "speaker-gpt_pi-10ila-sample"]:
+                    instr2speaker_model[instr_id] = "gpt"
+                elif item['model'] in ["speaker-clip_greedy", "speaker-clip_vote-10ila", "speaker-clip_vote-1ila", "speaker-clip10_pi-10ila-sample"]:
+                    instr2speaker_model[instr_id] = "clip"
 
     sorted_path_ids = sorted(list(path2negative_instrs.keys()))
     count_groups = 0
-    n_iterations = 100
+    n_iterations = 100  # 100
     map_values = []
     scores_variance = []
     count_top_instruction_model = defaultdict(int)
+    count_intruction_model_labels = defaultdict(int)
 
     for j in range(n_iterations):
         count_paths = 0
@@ -166,12 +168,14 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
                 instr_preds = []
                 for instr_id, score in voted_instrs:
                     if speaker_weight:
-                        speaker_score = instr2speaker_score[instr_id]
-                        score = pow(score, 1.0-speaker_weight) * pow(speaker_score, speaker_weight)
+                        speaker_scores = instr2speaker_scores[instr_id]
+                        avg_speaker_score = np.average(speaker_scores)
+                        score = pow(score, 1.0-speaker_weight) * pow(avg_speaker_score, speaker_weight)
                     if instr_id == positive_instr:
                         instr_labels.append((instr_id, 1))
                         instr_preds.append((instr_id, score))
                         path_scores.append(score)
+                        count_intruction_model_labels[instr2speaker_model[instr_id]] += 1
                     elif instr_id in negative_group:
                         instr_labels.append((instr_id, 0))
                         instr_preds.append((instr_id, score))
@@ -215,7 +219,10 @@ def compute_listener_score(input_voted_json_file, input_complete_json_file, scor
     print("Total test cases for {} iterations: {}".format(total_test_cases, n_iterations))
     for instruction_model, count_top in count_top_instruction_model.items():
         percentage = float(count_top) / total_test_cases
-        print("Instruction model {} ranked top percentage: {}".format(instruction_model, percentage))
+        print("Instruction model {} ranked top percentage: {}%".format(instruction_model, round(percentage * 100, 1)))
+    for instruction_model, count_labels in count_intruction_model_labels.items():
+        percentage = float(count_labels) / total_test_cases
+        print("Instruction model {} labels percentage: {}%".format(instruction_model, round(percentage * 100, 1)))
 
     return avg_map, output_str
 
@@ -226,8 +233,8 @@ def generate_path_dataset(positive_instructions, negative_instructions):
     path_dataset = []
 
     for i in range(num_test_cases):
-        pos_instr = np.random.choice(positive_instructions, 1, replace=False)
-        neg_instrs = np.random.choice(negative_instructions, num_negatives_per_group, replace=True)
+        pos_instr = np.random.choice(list(positive_instructions), 1, replace=False)
+        neg_instrs = np.random.choice(list(negative_instructions), num_negatives_per_group, replace=True)
         path_dataset.append((pos_instr, neg_instrs))
 
     return path_dataset
@@ -236,12 +243,13 @@ def generate_path_dataset(positive_instructions, negative_instructions):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--input_voted_json_file', help='input voted file')
-    parser.add_argument('--input_complete_json_file', help='input original file')
+    # parser.add_argument('--input_complete_json_file', help='input original file')
+    parser.add_argument('-input_complete_json_files', '--list', nargs='+', help='input original files', required=True)
     args = parser.parse_args()
 
     metrics = ['ndtw', 'sdtw', 'spl', 'score', 'prob']
-    # speaker_weights = [0.1 * x for x in range(0, 11)]
-    speaker_weights = [1.0]
+    speaker_weights = [0.1 * x for x in range(0, 11)]
+    # speaker_weights = [1.0]
     speaker_models = ["clip", "finetuned_gpt"]
 
     for speaker_model in speaker_models:
@@ -250,7 +258,7 @@ if __name__ == '__main__':
         metric2best_string = defaultdict(str)
         for speaker_weight in speaker_weights:
             for metric in metrics:
-                score, output_str = compute_listener_score(args.input_voted_json_file, args.input_complete_json_file, score_metric=metric, speaker_weight=speaker_weight, speaker_model=speaker_model)
+                score, output_str = compute_listener_score(args.input_voted_json_file, args.list, score_metric=metric, speaker_weight=speaker_weight, speaker_model=speaker_model)
                 if score > metric2best_score[metric] and speaker_weight not in [0.0, 1.0]:
                     print("New best score for metric {}: {}".format(metric, score))
                     metric2best_score[metric] = score
@@ -259,5 +267,4 @@ if __name__ == '__main__':
         for metric in metrics:
             print("\nSpeaker model {} final best score for metric {}: ".format(speaker_model, metric))
             print(metric2best_string[metric])
-
 
