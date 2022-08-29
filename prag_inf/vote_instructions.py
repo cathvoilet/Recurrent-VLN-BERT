@@ -9,10 +9,12 @@ from scipy.special import softmax
 
 def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs,
                       key="ndtw", metric="avg", no_prob=0, speaker_weight=0.0, speaker_file=None, normalize_speaker=0,
-                      speaker_result_key="speaker_result", speaker_model=None):
+                      speaker_result_key="speaker_result", speaker_model=None, matcher_weight=0.0):
     instr2speaker_score = {}
     path2speaker_scores = defaultdict(list)
-    print("Speaker weight= ", speaker_weight)
+    instr2matcher_score = {}
+    print("Speaker weight = ", speaker_weight)
+    print("VLNBERT matcher weight = ", matcher_weight)
     if speaker_weight > 0.0:
         if not speaker_file:
             sys.exit("Error: Speaker weight={}, but there is no speaker file".format(speaker_weight))
@@ -23,6 +25,8 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
                     instr2speaker_score[instr_id] = item[speaker_result_key][speaker_model]
                     path_id = instr_id.split("_")[0]
                     path2speaker_scores[path_id].append((instr_id, item[speaker_result_key][speaker_model]))
+                    if matcher_weight:
+                        instr2matcher_score[instr_id] = item["result"]["vln_match"]
 
     if normalize_speaker:
         for path_id, instr_speaker_scores in path2speaker_scores.items():
@@ -80,7 +84,8 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
     print("Agent scores metric: ", metric)
     if metric == "avg":
         best_instructions = best_avg(instrid2scores, path2instrids, output_duplicate_instrs,
-                                     speaker_weight=speaker_weight, instr2speaker_score=instr2speaker_score)
+                                     speaker_weight=speaker_weight, instr2speaker_score=instr2speaker_score,
+                                     matcher_weight=matcher_weight, instr2matcher_score=instr2matcher_score)
     # elif metric == "median":
     #     best_instructions = best_median(instrid2scores, path2instrids)
     # elif metric == "mean-std":
@@ -127,13 +132,20 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
     print('Saved eval info to %s' % output_file)
 
 
-def best_avg(instrid2scores, path2instrids, output_duplicate_instrs, speaker_weight=0.0, instr2speaker_score=None):
+def best_avg(instrid2scores, path2instrids, output_duplicate_instrs, speaker_weight=0.0, instr2speaker_score=None,
+             matcher_weight=0.0, instr2matcher_score=None):
     best_instructions = []
     for path_id, instr_ids in path2instrids.items():
         instr_scores = np.array([np.average(instrid2scores[instr_id]) for instr_id in instr_ids])
         if speaker_weight:
             instr_speaker_scores = [instr2speaker_score[instr_id] for instr_id in instr_ids]
             instr_scores = np.array([pow(instr_scores[i], 1.0-speaker_weight) * pow(instr_speaker_scores[i], speaker_weight) for i in range(len(instr_speaker_scores))])
+        if matcher_weight:
+            scale = 1e-2
+            instr_matcher_scores = [instr2matcher_score[instr_id] for instr_id in instr_ids]
+            instr_scores = np.array(
+                [pow(instr_scores[i], 1.0 - matcher_weight) * pow(instr_matcher_scores[i] * scale, matcher_weight) for i in
+                 range(len(instr_matcher_scores))])
         max_score = max(instr_scores)
         if not output_duplicate_instrs:
             max_instr_idx = np.argmax(instr_scores)
@@ -204,6 +216,7 @@ if __name__ == '__main__':
     parser.add_argument('--speaker_result_key', default="speaker_result", help='speaker key')
     parser.add_argument('--speaker_file', type=str, default=None)
     parser.add_argument('--speaker_model', type=str, default=None)
+    parser.add_argument('--matcher_weight', type=float, default=0.0, help='matcher weight')
     args = parser.parse_args()
 
     score_metric = args.listener_model
@@ -221,4 +234,5 @@ if __name__ == '__main__':
     vote_instructions(input_file_list, output_file, args.result_sample, args.output_duplicate_instrs, args.output_all_instrs,
                       metric=args.metric, key=score_metric, no_prob=args.no_prob,
                       speaker_weight=args.speaker_weight, speaker_file=args.speaker_file, speaker_model=args.speaker_model,
-                      normalize_speaker=args.normalize_speaker, speaker_result_key=args.speaker_result_key)
+                      normalize_speaker=args.normalize_speaker, speaker_result_key=args.speaker_result_key,
+                      matcher_weight=args.matcher_weight)
