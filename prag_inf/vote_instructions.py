@@ -10,14 +10,15 @@ from scipy.special import softmax
 def vote_instructions(input_file_list, output_file, result_sample, output_duplicate_instrs, output_all_instrs,
                       key="ndtw", metric="avg", no_prob=0, speaker_weight=0.0, speaker_file=None, normalize_speaker=0,
                       speaker_result_key="speaker_result", speaker_model=None, matcher_weight=0.0):
-    instr2speaker_score = {}
+    instr2speaker_score = defaultdict(float)
     path2speaker_scores = defaultdict(list)
-    instr2matcher_score = {}
+    instr2matcher_score = defaultdict(float)
     print("Speaker weight = ", speaker_weight)
     print("VLNBERT matcher weight = ", matcher_weight)
-    if speaker_weight > 0.0:
+    if speaker_weight > 0.0 or matcher_weight > 0.0:
         if not speaker_file:
-            sys.exit("Error: Speaker weight={}, but there is no speaker file".format(speaker_weight))
+            sys.exit("Error: Speaker weight={}, Matcher weight={}, but there is no speaker file".format(
+                speaker_weight, matcher_weight))
         else:
             with open(speaker_file) as f:
                 tmp_data = json.load(f)
@@ -38,14 +39,13 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
                 normalized_score = normalized_scores[i]
                 instr2speaker_score[instr_id] = normalized_score
 
-    instrid2scores = defaultdict(list)
     path2instrids = defaultdict(list)
 
-    instrid2scores_list = defaultdict(lambda: defaultdict(list))
+    listener_metric2instrid2scores_list = defaultdict(lambda: defaultdict(list))
     if no_prob:
-        metrics = ['score', 'spl', 'ndtw', 'sdtw']
+        listener_metrics = ['score', 'spl', 'ndtw', 'sdtw']
     else:
-        metrics = ['score', 'spl', 'ndtw', 'sdtw', 'prob']
+        listener_metrics = ['score', 'spl', 'ndtw', 'sdtw', 'prob']
 
     count_scores = 0
     for input_file in input_file_list:
@@ -54,25 +54,28 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
             for instr_id, item in tmp_data.items():
                 if not result_sample:
                     count_scores += 1
-                    score = item['result'][key]
-                    instrid2scores[instr_id].append(score)
-                    for metric_key in metrics:
-                        metric_score = item['result'][metric_key]
-                        instrid2scores_list[instr_id][metric_key].append(float(metric_score))
+                    for metric_key in listener_metrics:
+                        listener_score = item['result'][metric_key]
+                        instr_score = compute_instruction_score(float(listener_score), speaker_weight=speaker_weight,
+                                                                speaker_score=instr2speaker_score[instr_id],
+                                                                matcher_weight=matcher_weight,
+                                                                matcher_score=instr2matcher_score[instr_id])
+                        listener_metric2instrid2scores_list[metric_key][instr_id].append(instr_score)
                 else:
-                    scores = []
                     metric2scores = defaultdict(list)
                     for k in range(result_sample):
                         result_key = "result_sample_{}".format(k)
-                        score = item[result_key][key]
-                        scores.append(score)
                         count_scores += 1
-                        for metric_key in metrics:
+                        for metric_key in listener_metrics:
                             metric_score = item[result_key][metric_key]
                             metric2scores[metric_key].append(float(metric_score))
-                    instrid2scores[instr_id].append(np.average(scores))  # TODO: change for product metric
-                    for metric_key in metrics:
-                        instrid2scores_list[instr_id][metric_key].append(np.average(metric2scores[metric_key]))
+                    for metric_key in listener_metrics:
+                        listener_score = np.average(metric2scores[metric_key])
+                        instr_score = compute_instruction_score(listener_score, speaker_weight=speaker_weight,
+                                                                speaker_score=instr2speaker_score[instr_id],
+                                                                matcher_weight=matcher_weight,
+                                                                matcher_score=instr2matcher_score[instr_id])
+                        listener_metric2instrid2scores_list[metric_key][instr_id].append(instr_score)
 
                 path_id = instr_id.split("_")[0]
                 if instr_id not in path2instrids[path_id]:
@@ -80,12 +83,20 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
 
     print("Number of scores counted:", count_scores)
 
+    # Ensemble listeners variance
+    for listener_metric, instrid2scores_list in listener_metric2instrid2scores_list.items():
+        variance_list = []
+        for instr_id, scores in instrid2scores_list.items():
+            variance_list.append(np.var(scores))
+        print("Ensemble listener variance for listener metric {}: {}".format(listener_metric, round(np.average(variance_list), 3)))
+
+    # Get best instruction id
     best_instructions = []
+    instrid2scores = listener_metric2instrid2scores_list[key]
     print("Agent scores metric: ", metric)
+    print("Listener score to choose best instruction: ", key)
     if metric == "avg":
-        best_instructions = best_avg(instrid2scores, path2instrids, output_duplicate_instrs,
-                                     speaker_weight=speaker_weight, instr2speaker_score=instr2speaker_score,
-                                     matcher_weight=matcher_weight, instr2matcher_score=instr2matcher_score)
+        best_instructions = best_avg(instrid2scores, path2instrids, output_duplicate_instrs)
     # elif metric == "median":
     #     best_instructions = best_median(instrid2scores, path2instrids)
     # elif metric == "mean-std":
@@ -112,15 +123,15 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
                 else:
                     del item["result"]
                     del item["pred_path"]
-                metric_scores_list = instrid2scores_list[instr_id]
                 overall_scores = {}
-                for key, scores in metric_scores_list.items():
+                for listener_metric, instrid2scores_list in listener_metric2instrid2scores_list.items():
+                    scores = instrid2scores_list[instr_id]
                     if metric == "avg":
                         overall_score = np.average(scores)
                     elif metric == "product":
                         # overall_score = sum(np.log(scores))
                         overall_score = np.product(scores)
-                    overall_scores[key] = overall_score
+                    overall_scores[listener_metric] = overall_score
                 item['overall_voting_result'] = overall_scores
                 all_preds[item['instr_id']] = item
                 count += 1
@@ -132,20 +143,22 @@ def vote_instructions(input_file_list, output_file, result_sample, output_duplic
     print('Saved eval info to %s' % output_file)
 
 
-def best_avg(instrid2scores, path2instrids, output_duplicate_instrs, speaker_weight=0.0, instr2speaker_score=None,
-             matcher_weight=0.0, instr2matcher_score=None):
+def compute_instruction_score(listener_score, speaker_weight=0.0, speaker_score=0.0,
+                              matcher_weight=0.0, matcher_score=0.0):
+    instr_score = listener_score
+    if speaker_weight:
+        instr_score = pow(instr_score, 1.0 - speaker_weight) * pow(speaker_score, speaker_weight)
+    if matcher_weight:
+        scale = 1e-2
+        instr_score = pow(instr_score, 1.0 - matcher_weight) * pow(matcher_score * scale, matcher_weight)
+
+    return instr_score
+
+
+def best_avg(instrid2scores, path2instrids, output_duplicate_instrs):
     best_instructions = []
     for path_id, instr_ids in path2instrids.items():
         instr_scores = np.array([np.average(instrid2scores[instr_id]) for instr_id in instr_ids])
-        if speaker_weight:
-            instr_speaker_scores = [instr2speaker_score[instr_id] for instr_id in instr_ids]
-            instr_scores = np.array([pow(instr_scores[i], 1.0-speaker_weight) * pow(instr_speaker_scores[i], speaker_weight) for i in range(len(instr_speaker_scores))])
-        if matcher_weight:
-            scale = 1e-2
-            instr_matcher_scores = [instr2matcher_score[instr_id] for instr_id in instr_ids]
-            instr_scores = np.array(
-                [pow(instr_scores[i], 1.0 - matcher_weight) * pow(instr_matcher_scores[i] * scale, matcher_weight) for i in
-                 range(len(instr_matcher_scores))])
         max_score = max(instr_scores)
         if not output_duplicate_instrs:
             max_instr_idx = np.argmax(instr_scores)
