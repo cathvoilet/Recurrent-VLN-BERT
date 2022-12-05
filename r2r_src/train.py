@@ -39,7 +39,7 @@ print(args); print('')
 
 
 ''' train the listener '''
-def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
+def train(train_env, tok, n_iters, log_every=2000, val_envs={}, val_env_names=['val_seen','val_unseen'], aug_env=None):
     writer = SummaryWriter(log_dir=log_dir)
     listner = Seq2SeqAgent(train_env, "", tok, args.maxAction, seed=args.seed)
 
@@ -59,7 +59,9 @@ def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
     start = time.time()
     print('\nListener training starts, start iteration: %s' % str(start_iter))
 
-    best_val = {'val_unseen': {"spl": 0., "sr": 0., "state":"", 'update':False}, 'val_seen': {"spl": 0., "sr": 0., "state":"", 'update':False}}
+    # best_val = {'val_unseen': {"spl": 0., "sr": 0., "state":"", 'update':False}, 'val_seen': {"spl": 0., "sr": 0., "state":"", 'update':False}}
+    best_val = {val_name: {"spl": 0., "sr": 0., "state": "", 'update': False} for val_name in val_env_names}
+    # print("best_val: ", best_val)
 
     for idx in range(start_iter, start_iter+n_iters, log_every):
         listner.logs = defaultdict(list)
@@ -136,7 +138,7 @@ def train(train_env, tok, n_iters, log_every=2000, val_envs={}, aug_env=None):
         print(('%s (%d %d%%) %s' % (timeSince(start, float(iter)/n_iters),
                                              iter, float(iter)/n_iters*100, loss_str)))
 
-        if iter % 1000 == 0:
+        if iter % log_every == 0:  # 1000
             print("BEST RESULT TILL NOW")
             for env_name in best_val:
                 print(env_name, best_val[env_name]['state'])
@@ -243,9 +245,30 @@ def train_val(test_only=False):
         val_env_names = ['val_train_seen']
     else:
         featurized_scans = set([key.split("_")[0] for key in list(feat_dict.keys())])
-        val_env_names = ['val_train_seen', 'val_seen', 'val_unseen']
+        #val_env_names = ['val_train_seen', 'val_seen', 'val_unseen']
+        val_env_names = ['val_seen', 'val_unseen']
 
-    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=['train'], tokenizer=tok, name='train')
+    if args.train == "finetune_listener_outputs":
+        train_speaker_outputs = True
+        train_env_name = args.train_speaker_output_files
+        print("train data: \n", args.train_speaker_output_files)
+        speaker_outputs = True
+        val_env_names = args.speaker_output_files
+        print("val data: \n", args.speaker_output_files)
+    elif args.train == "eval_listener_outputs":
+        train_speaker_outputs = False
+        train_env_name = ['train']
+        speaker_outputs = True
+        val_env_names = args.speaker_output_files
+        print("eval data: \n", args.speaker_output_files)
+    else:
+        train_speaker_outputs = False
+        train_env_name = ['train']
+        speaker_outputs = False
+
+    train_env = R2RBatch(feat_dict, batch_size=args.batchSize, splits=train_env_name, tokenizer=tok, name='train',
+                         speaker_outputs=train_speaker_outputs)
+
     from collections import OrderedDict
 
     #if args.submit:
@@ -253,12 +276,12 @@ def train_val(test_only=False):
     #else:
     #    pass
 
-    if args.train == "eval_listener_outputs":
-        speaker_outputs = True
-        val_env_names = args.speaker_output_files
-        print(args.speaker_output_files)
-    else:
-        speaker_outputs = False
+    # if args.train == "eval_listener_outputs":
+    #     speaker_outputs = True
+    #     val_env_names = args.speaker_output_files
+    #     print(args.speaker_output_files)
+    # else:
+    #     speaker_outputs = False
 
     val_envs = OrderedDict(
         ((split,
@@ -269,8 +292,10 @@ def train_val(test_only=False):
          )
     )
 
-    if args.train == 'listener':
-        train(train_env, tok, args.iters, val_envs=val_envs)
+    if args.train == 'listener' or args.train == "finetune_listener_outputs":
+        train(train_env, tok, args.iters, val_envs=val_envs, val_env_names=val_env_names)
+    #elif args.train == "finetune_listener_outputs":
+    #    train(train_env, tok, args.iters, val_envs=val_envs, val_env_names=val_env_names, log_every=500)
     elif args.train == 'validlistener':
         valid(train_env, tok, val_envs=val_envs)
     elif args.train == "eval_listener_outputs":
@@ -313,7 +338,7 @@ def train_val_augment(test_only=False):
 
 
 if __name__ == "__main__":
-    if args.train in ['listener', 'validlistener', 'eval_listener_outputs']:
+    if args.train in ['listener', 'validlistener', 'eval_listener_outputs', 'finetune_listener_outputs']:
         train_val(test_only=args.test_only)
     elif args.train == 'auglistener':
         train_val_augment(test_only=args.test_only)

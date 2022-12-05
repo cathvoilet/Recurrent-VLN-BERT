@@ -4,7 +4,7 @@ import os
 import sys
 import re
 #sys.path.append('Matterport_Simulator/build/')
-sys.path.append('/vulcanscratch/lzhao/repos/Matterport3DSimulator/build/')
+sys.path.append('/fs/clip-scratch/lzhao/repos/Matterport3DSimulator/build/')
 import MatterSim
 import string
 import json
@@ -108,6 +108,8 @@ def load_speaker_outputs(input_files, tokenizer):
                 instruction = item['generated_instr']
                 if tokenizer:
                     instr_tokens = tokenizer.tokenize(instruction)
+                    if not instr_tokens:
+                        continue
                     padded = pad_instr_tokens(instr_tokens, args.maxInput)
                     # if padded is None:
                     #     print("Instruction id {} is empty:".format(instr_id))

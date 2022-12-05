@@ -23,6 +23,7 @@ class Param:
         self.parser.add_argument('--feature_size', type=int, default=2048)
         self.parser.add_argument("--loadOptim",action="store_const", default=False, const=True)
         self.parser.add_argument('--speaker_output_files', type=str, nargs="+", default=None)
+        self.parser.add_argument('--train_speaker_output_files', type=str, nargs="+", default=None)
 
         # Load the model from
         self.parser.add_argument("--load", default=None, help='path of the trained model')
