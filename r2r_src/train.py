@@ -27,11 +27,14 @@ if not os.path.exists(log_dir):
 
 IMAGENET_FEATURES = 'img_features/ResNet-152-imagenet.tsv'
 PLACE365_FEATURES = 'img_features/ResNet-152-places365.tsv'
+CLIP_ResNet504_FEATURES = 'img_features/CLIP-ResNet-50x4-views.tsv'
 
 if args.features == 'imagenet':
     features = IMAGENET_FEATURES
 elif args.features == 'places365':
     features = PLACE365_FEATURES
+elif args.features == "clip_resnet504":
+    features = CLIP_ResNet504_FEATURES
 
 feedback_method = args.feedback  # teacher or sample
 
@@ -238,7 +241,7 @@ def train_val(test_only=False):
     setup(args.seed)
     tok = get_tokenizer(args)
 
-    feat_dict = read_img_features(features, test_only=test_only)
+    feat_dict = read_img_features(features, args.feature_size, test_only=test_only)
 
     if test_only:
         featurized_scans = None
@@ -313,7 +316,7 @@ def train_val_augment(test_only=False):
     tok_bert = get_tokenizer(args)
 
     # Load the env img features
-    feat_dict = read_img_features(features, test_only=test_only)
+    feat_dict = read_img_features(features, args.feature_size, test_only=test_only)
 
     if test_only:
         featurized_scans = None

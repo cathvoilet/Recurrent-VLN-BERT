@@ -290,7 +290,7 @@ def timeSince(since, percent):
     rs = es - s
     return '%s (- %s)' % (asMinutes(s), asMinutes(rs))
 
-def read_img_features(feature_store, test_only=False):
+def read_img_features(feature_store, feature_size, test_only=False):
     import csv
     import base64
     from tqdm import tqdm
@@ -315,6 +315,10 @@ def read_img_features(feature_store, test_only=False):
                 long_id = item['scanId'] + "_" + item['viewpointId']
                 features[long_id] = np.frombuffer(base64.decodestring(item['features'].encode('ascii')),
                                                    dtype=np.float32).reshape((views, -1))   # Feature of long_id is (36, 2048)
+                padded_features = np.zeros((features[long_id].shape[0], feature_size))
+                padded_features[:features[long_id].shape[0], :features[long_id].shape[1]] = features[long_id]
+                features[long_id] = padded_features
+
     else:
         features = None
 

@@ -98,6 +98,7 @@ class R2RBatch():
             self.feature_size = self.env.feature_size
         else:
             self.feature_size = 2048
+        print("feature size in R2R batch: ", self.feature_size)
         self.data = []
         if tokenizer:
             self.tok = tokenizer
@@ -346,7 +347,7 @@ class R2RBatch():
             base_view_id = state.viewIndex
 
             if feature is None:
-                feature = np.zeros((36, 2048))
+                feature = np.zeros((36, self.feature_size))
 
             # Full features
             candidate = self.make_candidate(feature, state.scanId, state.location.viewpointId, state.viewIndex)
